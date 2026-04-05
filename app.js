@@ -235,6 +235,64 @@ function buildUnavailableHTML(label, website, name) {
   return `<p class="section-unavailable">Not available — check the brewery directly.</p>`;
 }
 
+function buildOwnershipHTML(brewery) {
+  const ownership = lookupOwnership(brewery.name, brewery.city);
+
+  if (!ownership) {
+    // Not in corporate database — independently owned
+    return `
+      <div class="ownership-badge ownership-independent" title="Not owned by any major beverage corporation">
+        <span class="ownership-icon">◆</span>
+        <span class="ownership-label">Independent</span>
+      </div>`;
+  }
+
+  if (ownership.ownerType === 'employee-owned') {
+    const tip = escapeHtml(ownership.note || 'Employee-owned brewery');
+    return `
+      <div class="ownership-badge ownership-employee" title="${tip}">
+        <span class="ownership-icon">◆</span>
+        <span class="ownership-label">Employee-Owned</span>
+        ${ownership.since ? `<span class="ownership-since">since ${ownership.since}</span>` : ''}
+      </div>`;
+  }
+
+  if (ownership.ownerType === 'family') {
+    const tip = escapeHtml(ownership.note || 'Family-owned brewery');
+    return `
+      <div class="ownership-badge ownership-family" title="${tip}">
+        <span class="ownership-icon">◆</span>
+        <span class="ownership-label">Family-Owned</span>
+      </div>`;
+  }
+
+  if (ownership.ownerType === 'publicly-traded') {
+    const tip = escapeHtml(ownership.note || '');
+    return `
+      <div class="ownership-badge ownership-public" title="${tip}">
+        <span class="ownership-icon">◆</span>
+        <span class="ownership-label">Publicly Traded</span>
+        <span class="ownership-corp">${escapeHtml(ownership.owner)}</span>
+      </div>`;
+  }
+
+  // Corporate / Big Beer / International conglomerate
+  const labelMap = {
+    bigbeer:              'Owned by Big Beer',
+    'beverage-conglomerate': 'Corporate Owned',
+    international:        'Foreign Corporate Owned',
+  };
+  const label = labelMap[ownership.ownerType] || 'Corporate Owned';
+  const tip   = escapeHtml(ownership.note || `Acquired by ${ownership.owner} in ${ownership.since}`);
+  return `
+    <div class="ownership-badge ownership-corporate" title="${tip}">
+      <span class="ownership-icon">◆</span>
+      <span class="ownership-label">${label}</span>
+      <span class="ownership-corp">${escapeHtml(ownership.owner)}</span>
+      ${ownership.since ? `<span class="ownership-since">acq. ${ownership.since}</span>` : ''}
+    </div>`;
+}
+
 function renderBreweryCard(brewery, index) {
   const type       = brewery.brewery_type || 'micro';
   const typeLabel  = TYPE_LABELS[type] || type;
@@ -246,6 +304,7 @@ function renderBreweryCard(brewery, index) {
   const hasCoords  = brewery.latitude && brewery.longitude;
   const isFood     = ['brewpub', 'bar'].includes(type);
   const name       = brewery.name;
+  const ownershipHTML = buildOwnershipHTML(brewery);
 
   // ── Contact block ──
   let contactHTML = '';
@@ -317,6 +376,7 @@ function renderBreweryCard(brewery, index) {
         <div class="card-info-col">
           <div class="card-top">
             <span class="brewery-type-badge type-${escapeHtml(type)}">${escapeHtml(typeLabel)}</span>
+            ${ownershipHTML}
           </div>
           <h2 class="brewery-name">${escapeHtml(name)}</h2>
           <div class="card-contact">${contactHTML}</div>

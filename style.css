@@ -597,6 +597,75 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   flex: 1;
 }
 
+/* ─── Ownership Badge ────────────────────────── */
+.ownership-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 0.18rem 0.55rem 0.18rem 0.4rem;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  cursor: default;
+  transition: opacity var(--t);
+}
+.ownership-badge:hover { opacity: 0.85; }
+
+.ownership-icon { font-size: 0.45rem; opacity: 0.8; }
+
+.ownership-corp {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-left: 0.15rem;
+  border-left: 1px solid currentColor;
+  padding-left: 0.35rem;
+  opacity: 0.9;
+}
+
+.ownership-since {
+  font-size: 0.55rem;
+  opacity: 0.6;
+  margin-left: 0.1rem;
+}
+
+/* Independent — green */
+.ownership-independent {
+  color: var(--hop-green);
+  border-color: rgba(58,97,71,0.5);
+  background: rgba(58,97,71,0.1);
+}
+
+/* Employee-owned — teal-blue */
+.ownership-employee {
+  color: #4a8a8a;
+  border-color: rgba(74,138,138,0.45);
+  background: rgba(74,138,138,0.08);
+}
+
+/* Family-owned — amber */
+.ownership-family {
+  color: var(--gold);
+  border-color: rgba(200,146,42,0.45);
+  background: rgba(200,146,42,0.07);
+}
+
+/* Publicly traded — slate blue */
+.ownership-public {
+  color: #7a9aba;
+  border-color: rgba(122,154,186,0.45);
+  background: rgba(122,154,186,0.08);
+}
+
+/* Corporate / Big Beer — warm red-amber warning */
+.ownership-corporate {
+  color: #c86040;
+  border-color: rgba(200,96,64,0.5);
+  background: rgba(200,96,64,0.08);
+}
+
 /* Contact Details */
 .card-contact {
   display: flex;
