@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Find craft breweries and brewpubs near you. Tap lists, hours, events, and more.">
+  <title>Brewery Finder — The Taproom Atlas</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <!-- ══════════════════════════════════════════
+       HEADER / SEARCH
+  ══════════════════════════════════════════ -->
+  <header class="site-header">
+    <div class="header-decoration" aria-hidden="true">
+      <div class="deco-ring deco-ring-1"></div>
+      <div class="deco-ring deco-ring-2"></div>
+      <div class="deco-ring deco-ring-3"></div>
+      <div class="deco-hops">
+        <svg viewBox="0 0 120 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M60 190 C60 190 60 100 60 10" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+          <ellipse cx="40" cy="60" rx="22" ry="30" transform="rotate(-20 40 60)" fill="currentColor" opacity="0.15"/>
+          <ellipse cx="80" cy="80" rx="22" ry="30" transform="rotate(20 80 80)" fill="currentColor" opacity="0.12"/>
+          <ellipse cx="35" cy="110" rx="20" ry="28" transform="rotate(-15 35 110)" fill="currentColor" opacity="0.1"/>
+          <ellipse cx="78" cy="128" rx="20" ry="28" transform="rotate(15 78 128)" fill="currentColor" opacity="0.1"/>
+          <circle cx="40" cy="60" r="3" fill="currentColor" opacity="0.4"/>
+          <circle cx="80" cy="80" r="3" fill="currentColor" opacity="0.35"/>
+          <circle cx="35" cy="110" r="3" fill="currentColor" opacity="0.3"/>
+          <circle cx="78" cy="128" r="3" fill="currentColor" opacity="0.3"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="header-content">
+      <div class="brand">
+        <div class="brand-emblem" aria-hidden="true">
+          <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="40,4 74,22 74,58 40,76 6,58 6,22" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.6"/>
+            <polygon points="40,12 66,26 66,54 40,68 14,54 14,26" stroke="currentColor" stroke-width="1" fill="none" opacity="0.3"/>
+            <text x="40" y="46" text-anchor="middle" font-family="'Abril Fatface', serif" font-size="20" fill="currentColor">BF</text>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="site-title">Brewery<br>Finder</h1>
+          <p class="site-tagline">The Taproom Atlas</p>
+        </div>
+      </div>
+
+      <div class="header-rule" aria-hidden="true">
+        <span class="rule-line"></span>
+        <span class="rule-diamond">◆</span>
+        <span class="rule-line"></span>
+      </div>
+
+      <form class="search-form" id="search-form" autocomplete="off">
+        <div class="search-field search-location-field">
+          <label class="field-label" for="location-input">
+            <span class="label-icon">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a5.5 5.5 0 00-5.5 5.5c0 3.5 5.5 10.5 5.5 10.5S13.5 9 13.5 5.5A5.5 5.5 0 008 0zm0 8a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
+            </span>
+            Location
+          </label>
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="location-input"
+              class="field-input"
+              placeholder="Detecting your location…"
+              aria-label="Search location"
+            >
+            <button type="button" class="locate-btn" id="use-location-btn" title="Use my current location" aria-label="Use my current location">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="search-field search-radius-field">
+          <label class="field-label" for="radius-select">
+            <span class="label-icon">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="1" fill="currentColor"/></svg>
+            </span>
+            Radius
+          </label>
+          <div class="input-wrapper">
+            <select id="radius-select" class="field-select">
+              <option value="10">10 miles</option>
+              <option value="25">25 miles</option>
+              <option value="50" selected>50 miles</option>
+              <option value="100">100 miles</option>
+              <option value="200">200 miles</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="search-btn" id="search-btn">
+          <span class="btn-text">Search Breweries</span>
+          <span class="btn-icon">→</span>
+        </button>
+      </form>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════
+       MAIN CONTENT
+  ══════════════════════════════════════════ -->
+  <main class="main-content" id="main-content">
+
+    <!-- Status Bar -->
+    <div id="status-bar" class="status-bar" aria-live="polite" hidden>
+      <div class="status-inner">
+        <span class="status-diamond" aria-hidden="true">◆</span>
+        <span id="status-text"></span>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-state" hidden aria-live="polite" aria-label="Loading breweries">
+      <div class="loading-visual" aria-hidden="true">
+        <div class="loading-mug">
+          <div class="mug-body">
+            <div class="mug-foam"></div>
+            <div class="mug-fill"></div>
+          </div>
+          <div class="mug-handle"></div>
+        </div>
+      </div>
+      <p class="loading-text">Searching the atlas…</p>
+    </div>
+
+    <!-- Error State -->
+    <div id="error-state" class="error-state" hidden>
+      <div class="state-icon" aria-hidden="true">⚠</div>
+      <p id="error-message">An error occurred.</p>
+      <button class="retry-btn" id="retry-btn">Try Again</button>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="empty-state" hidden>
+      <div class="state-icon" aria-hidden="true">🍺</div>
+      <p>No breweries found in this area.</p>
+      <p class="state-hint">Try expanding your search radius or a different location.</p>
+    </div>
+
+    <!-- Welcome State -->
+    <div id="welcome-state" class="welcome-state">
+      <div class="welcome-content">
+        <p class="welcome-lead">Allow location access to discover nearby breweries, or enter a city above to begin your search.</p>
+        <div class="welcome-stats">
+          <div class="stat-item">
+            <span class="stat-number">9,000+</span>
+            <span class="stat-label">Breweries in database</span>
+          </div>
+          <div class="stat-divider" aria-hidden="true">◆</div>
+          <div class="stat-item">
+            <span class="stat-number">50</span>
+            <span class="stat-label">States covered</span>
+          </div>
+          <div class="stat-divider" aria-hidden="true">◆</div>
+          <div class="stat-item">
+            <span class="stat-number">Free</span>
+            <span class="stat-label">No signup required</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Grid -->
+    <div id="brewery-grid" class="brewery-grid" aria-label="Brewery results"></div>
+
+  </main>
+
+  <!-- ══════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════ -->
+  <footer class="site-footer">
+    <div class="footer-rule" aria-hidden="true">
+      <span class="rule-line"></span>
+      <span class="rule-diamond">◆</span>
+      <span class="rule-line"></span>
+    </div>
+    <p class="footer-text">
+      Brewery data from <a href="https://www.openbrewerydb.org" target="_blank" rel="noopener">Open Brewery DB</a>
+      · Maps from <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>
+      · Tiles by <a href="https://carto.com" target="_blank" rel="noopener">CARTO</a>
+    </p>
+    <p class="footer-note">Tap lists, hours, events, food menus, and food truck info are sourced directly from each brewery's website as this data is not available in public APIs.</p>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
