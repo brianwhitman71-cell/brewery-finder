@@ -173,13 +173,67 @@ async function geocodeAddress(query) {
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 async function fetchBreweries(lat, lng) {
-  // Fetch up to 200 breweries sorted by proximity; we filter by radius client-side
   const url = `${BREWERY_API}?by_dist=${lat},${lng}&per_page=200`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Brewery API error: ${res.status}`);
   return res.json();
 }
 
+/**
+ * Geocode a single brewery using its postal code / city / state.
+ * Mutates brewery.latitude and brewery.longitude in place.
+ */
+async function geocodeBrewery(brewery) {
+  const parts = [];
+  if (brewery.address_1) parts.push(brewery.address_1);
+  if (brewery.city)      parts.push(brewery.city);
+  if (brewery.state_province || brewery.state) parts.push(brewery.state_province || brewery.state);
+  if (brewery.postal_code) parts.push(brewery.postal_code);
+  if (!parts.length) return false;
+
+  try {
+    const coords = await geocodeAddress(parts.join(', '));
+    brewery.latitude  = String(coords.lat);
+    brewery.longitude = String(coords.lng);
+    brewery._geocoded = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * For breweries missing coordinates, geocode them from their address.
+ * Uses a postal-code cache so duplicate cities don't burn extra requests.
+ * Respects Nominatim's 1 req/sec guideline.
+ */
+async function geocodeMissingCoords(breweries) {
+  const candidates = breweries.filter(
+    b => !b.latitude && !b.longitude &&
+         b.brewery_type !== 'closed' &&
+         (b.postal_code || b.city)
+  ).slice(0, 25); // cap to keep search time reasonable
+
+  if (!candidates.length) return;
+
+  const cache = {}; // key → { lat, lng } so same postal code isn't geocoded twice
+  for (const brewery of candidates) {
+    const key = brewery.postal_code || `${brewery.city},${brewery.state_province}`;
+    if (cache[key]) {
+      brewery.latitude  = String(cache[key].lat);
+      brewery.longitude = String(cache[key].lng);
+      brewery._geocoded = true;
+      continue;
+    }
+    const ok = await geocodeBrewery(brewery);
+    if (ok) cache[key] = { lat: brewery.latitude, lng: brewery.longitude };
+    await new Promise(r => setTimeout(r, 350)); // 350ms between requests
+  }
+}
+
+/**
+ * Filter + sort breweries by radius, then strip known-closed entries.
+ */
 function filterByRadius(breweries, lat, lng, radiusMiles) {
   return breweries
     .filter(b => b.latitude && b.longitude && b.brewery_type !== 'closed')
@@ -188,6 +242,7 @@ function filterByRadius(breweries, lat, lng, radiusMiles) {
       _distance: haversineDistance(lat, lng, parseFloat(b.latitude), parseFloat(b.longitude))
     }))
     .filter(b => b._distance <= radiusMiles)
+    .filter(b => !isKnownClosed(b.name, b.city))   // curated known-closed list
     .sort((a, b) => a._distance - b._distance);
 }
 
@@ -964,6 +1019,10 @@ async function doSearch() {
     }
 
     const allBreweries = await fetchBreweries(lat, lng);
+
+    // Geocode breweries that are in the DB but missing coordinates (e.g. recently added)
+    await geocodeMissingCoords(allBreweries);
+
     const filtered = filterByRadius(allBreweries, lat, lng, radiusMiles);
 
     loadingState.hidden = true;

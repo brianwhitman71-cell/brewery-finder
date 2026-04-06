@@ -286,6 +286,77 @@ window.OWNERSHIP_DB = [
   },
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Known Permanently Closed Breweries
+// Used to filter results before rendering, independent of website scraping.
+// Sources: brewery announcements, local news, user reports.
+// ═══════════════════════════════════════════════════════════════════════════
+
+window.KNOWN_CLOSED_DB = [
+
+  // ── Georgia ──────────────────────────────────────────────────────────────
+  {
+    patterns: ['jekyll'],
+    city: 'alpharetta',
+    closedYear: 2023,
+    note: 'Jekyll Brewing permanently closed in 2023.'
+  },
+  {
+    patterns: ['orpheus'],
+    city: 'atlanta',
+    closedYear: 2022,
+    note: 'Orpheus Brewing permanently closed in 2022.'
+  },
+  {
+    patterns: ['red brick', 'atlanta brewing'],
+    city: 'atlanta',
+    closedYear: 2019,
+    note: 'Red Brick / Atlanta Brewing Co permanently closed in 2019.'
+  },
+
+  // ── National high-profile closures ───────────────────────────────────────
+  {
+    patterns: ['anchor brewing', 'anchor steam'],
+    city: 'san francisco',
+    closedYear: 2023,
+    note: 'Anchor Brewing, America\'s oldest craft brewery, permanently closed August 2023.'
+  },
+  {
+    patterns: ['flying monkey'],
+    city: '',
+    closedYear: 2022,
+    note: 'Flying Monkeys Craft Brewery closed permanently.'
+  },
+  {
+    patterns: ['schlafly'],
+    city: '', closedYear: null,
+    note: null  // placeholder — Schlafly is still open, do NOT include
+    // (example of how to leave a note without activating)
+  },
+];
+
+// Remove placeholder/null entries
+window.KNOWN_CLOSED_DB = window.KNOWN_CLOSED_DB.filter(e => e.closedYear !== null);
+
+/**
+ * Check if a brewery is known to be permanently closed.
+ * Returns the closure entry or null.
+ */
+window.isKnownClosed = function(breweryName, city) {
+  const normalName = window.normalizeBreweryName(breweryName);
+  const normalCity = (city || '').toLowerCase().trim();
+
+  for (const entry of window.KNOWN_CLOSED_DB) {
+    for (const pattern of entry.patterns) {
+      if (!normalName.includes(pattern)) continue;
+      // If entry has a city, require it to match (prevents false positives)
+      if (entry.city && normalCity && !normalCity.includes(entry.city)) continue;
+      return entry;
+    }
+  }
+  return null;
+};
+
 /**
  * Normalize a brewery name for fuzzy matching.
  * Strips common words and punctuation so "Goose Island Beer Co." → "goose island"
