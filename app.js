@@ -30,12 +30,13 @@ const TYPE_LABELS = {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
-let currentLat = null;
-let currentLng = null;
+let currentLat   = null;
+let currentLng   = null;
+let currentState = null;    // US state name, used for supplementary coord-less fetch
 let mapInstances = {};      // id → Leaflet map
-let mapObserver = null;     // IntersectionObserver for lazy map init
+let mapObserver  = null;    // IntersectionObserver for lazy map init
 let currentBreweries = [];  // filtered + sorted list currently displayed
-let currentSort = 'distance';
+let currentSort  = 'distance';
 let scrapedDataCache = {};  // breweryId → scrape results (for sort-by-open)
 let visibleCount = 0;       // tracks how many cards are still shown after closure removal
 
@@ -153,10 +154,11 @@ async function reverseGeocode(lat, lng) {
   });
   if (!res.ok) throw new Error('Reverse geocoding failed.');
   const data = await res.json();
-  const addr = data.address || {};
+  const addr  = data.address || {};
   const city  = addr.city || addr.town || addr.village || addr.hamlet || '';
   const state = addr.state || '';
-  return city && state ? `${city}, ${state}` : data.display_name || `${lat}, ${lng}`;
+  const name  = city && state ? `${city}, ${state}` : data.display_name || `${lat}, ${lng}`;
+  return { name, state };
 }
 
 async function geocodeAddress(query) {
@@ -177,6 +179,36 @@ async function fetchBreweries(lat, lng) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Brewery API error: ${res.status}`);
   return res.json();
+}
+
+/**
+ * Fetch breweries in a state that have no coordinates.
+ * The by_dist endpoint silently omits these, so we need a separate call.
+ */
+async function fetchNoCoordBreweriesForState(state) {
+  if (!state) return [];
+  try {
+    // Fetch up to 200; Georgia has ~100 total so one page covers it
+    const url = `${BREWERY_API}?by_state=${encodeURIComponent(state)}&per_page=200`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const all = await res.json();
+    return all.filter(b => !b.latitude && !b.longitude && b.brewery_type !== 'closed');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * If we don't yet have the state stored, fetch it from reverse geocode.
+ * Used when the user types a location rather than using GPS.
+ */
+async function ensureState(lat, lng) {
+  if (currentState) return;
+  try {
+    const { state } = await reverseGeocode(lat, lng);
+    currentState = state;
+  } catch { /* non-fatal */ }
 }
 
 /**
@@ -1018,9 +1050,23 @@ async function doSearch() {
       // (simple heuristic: if it doesn't look like "lat, lng")
     }
 
-    const allBreweries = await fetchBreweries(lat, lng);
+    // Ensure we have the state for the supplementary fetch
+    await ensureState(lat, lng);
 
-    // Geocode breweries that are in the DB but missing coordinates (e.g. recently added)
+    // Run main fetch + supplementary no-coords state fetch in parallel
+    const [mainBreweries, noCoordBreweries] = await Promise.all([
+      fetchBreweries(lat, lng),
+      fetchNoCoordBreweriesForState(currentState),
+    ]);
+
+    // Merge — by_dist already deduplicates by having coords; add any new ones
+    const seenIds = new Set(mainBreweries.map(b => b.id));
+    const allBreweries = [
+      ...mainBreweries,
+      ...noCoordBreweries.filter(b => !seenIds.has(b.id)),
+    ];
+
+    // Geocode the coord-less breweries so distance filtering can include them
     await geocodeMissingCoords(allBreweries);
 
     const filtered = filterByRadius(allBreweries, lat, lng, radiusMiles);
@@ -1083,7 +1129,8 @@ async function detectLocation() {
     const { lat, lng } = await getUserLocation();
     currentLat = lat;
     currentLng = lng;
-    const locationName = await reverseGeocode(lat, lng);
+    const { name: locationName, state } = await reverseGeocode(lat, lng);
+    currentState = state;
     locationInput.value = locationName;
     locationInput.placeholder = '';
     await doSearch();
@@ -1134,8 +1181,9 @@ searchForm.addEventListener('submit', async (e) => {
 
 locationInput.addEventListener('input', () => {
   // User is typing a new location — clear stored coords so it re-geocodes
-  currentLat = null;
-  currentLng = null;
+  currentLat   = null;
+  currentLng   = null;
+  currentState = null;
 });
 
 useLocationBtn.addEventListener('click', detectLocation);
