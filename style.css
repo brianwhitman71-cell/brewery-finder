@@ -1109,6 +1109,23 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 ::-webkit-scrollbar-thumb { background: var(--border-bright); }
 ::-webkit-scrollbar-thumb:hover { background: var(--copper); }
 
+/* ─── Source Badge (OSM etc.) ────────────────── */
+.source-badge {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.source-osm {
+  background: rgba(78,121,91,0.2);
+  color: #7ac99a;
+  border: 1px solid rgba(78,121,91,0.35);
+}
+
 /* ─── Untappd Parsed Beer Cards ──────────────── */
 .ut-parsed-header {
   display: flex;

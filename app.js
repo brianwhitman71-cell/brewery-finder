@@ -11,6 +11,7 @@
 
 const BREWERY_API   = 'https://api.openbrewerydb.org/v1/breweries';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
+const OVERPASS_API  = 'https://overpass-api.de/api/interpreter';
 const TILE_URL      = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 const TILE_ATTR     = '&copy; <a href="https://carto.com">CARTO</a>';
 
@@ -197,6 +198,132 @@ async function fetchNoCoordBreweriesForState(state) {
   } catch {
     return [];
   }
+}
+
+// ─── OpenStreetMap / Overpass API ────────────────────────────────────────────
+
+/**
+ * Map OSM craft/amenity tags to an OBDB-compatible brewery_type string.
+ */
+function osmBreweryType(tags) {
+  const craft = (tags.craft || '').toLowerCase();
+  const amenity = (tags.amenity || '').toLowerCase();
+  if (craft === 'microbrewery') return 'micro';
+  if (craft === 'brewery') return tags.industrial ? 'large' : 'micro';
+  if (amenity === 'pub' || amenity === 'bar') return 'brewpub';
+  return 'micro';
+}
+
+/**
+ * Convert a single Overpass API element to an OBDB-shaped brewery object.
+ */
+function osmToBrewery(el) {
+  const tags = el.tags || {};
+  const lat   = el.lat  ?? el.center?.lat;
+  const lon   = el.lon  ?? el.center?.lon;
+
+  // Prefer contact:* tags then fall back to direct tags
+  const website = tags.website || tags['contact:website'] || tags.url || null;
+  const phone   = (tags.phone || tags['contact:phone'] || tags['contact:mobile'] || '')
+                    .replace(/\s+/g, '');
+
+  const name = tags.name || tags['name:en'] || null;
+  if (!name) return null; // skip unnamed elements
+
+  return {
+    id:             `osm-${el.type}-${el.id}`,
+    name,
+    brewery_type:   osmBreweryType(tags),
+    address_1:      [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ') || null,
+    address_2:      null,
+    address_3:      null,
+    city:           tags['addr:city'] || null,
+    state_province: tags['addr:state'] || null,
+    state:          tags['addr:state'] || null,
+    postal_code:    tags['addr:postcode'] || null,
+    country:        tags['addr:country'] || 'United States',
+    latitude:       lat != null ? String(lat) : null,
+    longitude:      lon != null ? String(lon) : null,
+    phone:          phone || null,
+    website_url:    website,
+    _source:        'osm',
+    _osmTags:       tags,   // keep raw tags for hours / social links if needed
+  };
+}
+
+/**
+ * Fetch breweries from OpenStreetMap's Overpass API within a radius.
+ * Queries for craft=brewery, craft=microbrewery, and microbrewery=yes nodes/ways.
+ * Returns an array of OBDB-shaped objects. Never throws — failures return [].
+ */
+async function fetchBreweriesFromOSM(lat, lng, radiusMiles) {
+  try {
+    const radiusM = Math.round(radiusMiles * 1609.34);
+    // Query nodes + ways with brewery-related tags
+    const query = `
+[out:json][timeout:30];
+(
+  node["craft"="brewery"](around:${radiusM},${lat},${lng});
+  way["craft"="brewery"](around:${radiusM},${lat},${lng});
+  node["craft"="microbrewery"](around:${radiusM},${lat},${lng});
+  way["craft"="microbrewery"](around:${radiusM},${lat},${lng});
+  node["microbrewery"="yes"](around:${radiusM},${lat},${lng});
+  way["microbrewery"="yes"](around:${radiusM},${lat},${lng});
+  node["amenity"="pub"]["microbrewery"="yes"](around:${radiusM},${lat},${lng});
+  way["amenity"="pub"]["microbrewery"="yes"](around:${radiusM},${lat},${lng});
+);
+out center tags;`.trim();
+
+    const res = await fetch(OVERPASS_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `data=${encodeURIComponent(query)}`,
+    });
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const breweries = (data.elements || [])
+      .map(osmToBrewery)
+      .filter(Boolean);
+
+    return breweries;
+  } catch (err) {
+    console.warn('[BreweryFinder] Overpass API error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Normalize a brewery name to a short token for deduplication.
+ * Strips "brewing", "brewery", "beer co" etc. — mirrors ownership.js logic.
+ */
+function dedupeKey(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\b(brewing company|brewing co\.?|beer company|beer co\.?|brewing|brewery|brewhouse|brewpub|craft beer|the |& | and )\b/g, ' ')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+/**
+ * Remove OSM breweries that are already represented in the OBDB list,
+ * matching by normalized name + city to prevent duplicates.
+ */
+function deduplicateOSM(obdbList, osmList) {
+  // Build a lookup of OBDB name tokens (with city as secondary key)
+  const obdbKeys = new Set(
+    obdbList.map(b => `${dedupeKey(b.name)}|${(b.city || '').toLowerCase()}`)
+  );
+  const obdbNameOnly = new Set(obdbList.map(b => dedupeKey(b.name)));
+
+  return osmList.filter(b => {
+    const key      = `${dedupeKey(b.name)}|${(b.city || '').toLowerCase()}`;
+    const nameOnly = dedupeKey(b.name);
+    // Exclude if exact name+city match, or name-only match with short token (≥6 chars)
+    if (obdbKeys.has(key)) return false;
+    if (nameOnly.length >= 6 && obdbNameOnly.has(nameOnly)) return false;
+    return true;
+  });
 }
 
 /**
@@ -698,6 +825,7 @@ function renderBreweryCard(brewery, index) {
         <div class="card-info-col">
           <div class="card-top">
             <span class="brewery-type-badge type-${escapeHtml(type)}">${escapeHtml(typeLabel)}</span>
+            ${brewery._source === 'osm' ? '<span class="source-badge source-osm" title="Listed in OpenStreetMap but not yet in Open Brewery DB">OSM</span>' : ''}
             ${ownershipHTML}
           </div>
           <h2 class="brewery-name">${escapeHtml(name)}</h2>
@@ -857,15 +985,30 @@ function startScraping(breweries) {
   activeScrapeController = ctrl;
 
   for (const brewery of breweries) {
+    // For OSM-sourced breweries, pre-fill hours from opening_hours tag if present
+    if (brewery._source === 'osm' && brewery._osmTags?.opening_hours) {
+      const osmHours = formatOSMHours(brewery._osmTags.opening_hours);
+      if (osmHours) {
+        setSectionContent(brewery.id, 'hours', `<div class="hours-list">${osmHours}</div>`);
+        // Store in cache so "Open Now" sort can use it
+        if (!scrapedDataCache[brewery.id]) scrapedDataCache[brewery.id] = {};
+        scrapedDataCache[brewery.id].hours = { src: 'osm-raw', text: osmHours };
+      }
+    }
+
     if (!brewery.website_url) {
       // No website — fill sections with "no website" message immediately
       markNoWebsite(brewery.id);
+      // But if we already set hours from OSM, don't overwrite it
+      if (brewery._source === 'osm' && brewery._osmTags?.opening_hours) {
+        const osmHours = formatOSMHours(brewery._osmTags.opening_hours);
+        if (osmHours) setSectionContent(brewery.id, 'hours', `<div class="hours-list">${osmHours}</div>`);
+      }
       continue;
     }
 
     scrapeQueue.add(async () => {
       if (ctrl.cancelled) return;
-      // Mark card as "fetching" (already the default state, nothing to do)
       try {
         const results = await scrapeBrewery(brewery.website_url);
         if (ctrl.cancelled) return;
@@ -876,6 +1019,26 @@ function startScraping(breweries) {
       }
     });
   }
+}
+
+/**
+ * Convert an OSM opening_hours string (e.g. "Mo-Fr 11:00-22:00; Sa-Su 12:00-23:00")
+ * to formatted HTML lines. Handles common OSM formats; returns null if unparseable.
+ */
+function formatOSMHours(raw) {
+  if (!raw) return null;
+  // Split on semicolons (OSM uses ";" to separate day ranges)
+  const parts = raw.split(';').map(s => s.trim()).filter(Boolean);
+  const lines = parts.map(part => {
+    // Try to make it human-readable; OSM uses "Mo-Fr 11:00-22:00" etc.
+    return escapeHtml(part
+      .replace(/Mo/g, 'Mon').replace(/Tu/g, 'Tue').replace(/We/g, 'Wed')
+      .replace(/Th/g, 'Thu').replace(/Fr/g, 'Fri').replace(/Sa/g, 'Sat')
+      .replace(/Su/g, 'Sun').replace(/PH/g, 'Holidays')
+      .replace(/off/gi, 'Closed')
+    );
+  });
+  return lines.map(l => `<div class="hours-row">${l}</div>`).join('');
 }
 
 function markNoWebsite(id) {
@@ -1086,18 +1249,25 @@ async function doSearch() {
     // Ensure we have the state for the supplementary fetch
     await ensureState(lat, lng);
 
-    // Run main fetch + supplementary no-coords state fetch in parallel
-    const [mainBreweries, noCoordBreweries] = await Promise.all([
+    // Run all three fetches in parallel
+    const [mainBreweries, noCoordBreweries, osmBreweries] = await Promise.all([
       fetchBreweries(lat, lng),
       fetchNoCoordBreweriesForState(currentState),
+      fetchBreweriesFromOSM(lat, lng, radiusMiles),
     ]);
 
-    // Merge — by_dist already deduplicates by having coords; add any new ones
+    // Merge OBDB sources first (deduplicate by ID)
     const seenIds = new Set(mainBreweries.map(b => b.id));
-    const allBreweries = [
+    const allObdb = [
       ...mainBreweries,
       ...noCoordBreweries.filter(b => !seenIds.has(b.id)),
     ];
+
+    // Then add OSM breweries not already represented in OBDB
+    const newFromOSM = deduplicateOSM(allObdb, osmBreweries);
+    console.log(`[BreweryFinder] OSM: ${osmBreweries.length} found, ${newFromOSM.length} new after dedup`);
+
+    const allBreweries = [...allObdb, ...newFromOSM];
 
     // Geocode the coord-less breweries so distance filtering can include them
     await geocodeMissingCoords(allBreweries);
