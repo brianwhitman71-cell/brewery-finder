@@ -593,6 +593,125 @@ function resolveUrl(href, baseUrl) {
   }
 }
 
+// ─── Untappd Widget Script Parser ────────────────────────────────────────────
+
+/**
+ * Walk a string character-by-character and return the content of the first
+ * balanced { … } block starting at or after `startPos`.
+ * Correctly handles nested objects, arrays, and quoted strings.
+ */
+function extractBalancedObject(str, startPos = 0) {
+  const open = str.indexOf('{', startPos);
+  if (open === -1) return null;
+
+  let depth = 0;
+  let inStr  = false;
+  let strCh  = '';
+  let esc    = false;
+
+  for (let i = open; i < str.length; i++) {
+    const c = str[i];
+    if (esc)            { esc = false; continue; }
+    if (c === '\\' && inStr) { esc = true;  continue; }
+    if (inStr)          { if (c === strCh) inStr = false; continue; }
+    if (c === '"' || c === "'") { inStr = true; strCh = c; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') { if (--depth === 0) return str.slice(open, i + 1); }
+  }
+  return null;
+}
+
+/**
+ * Recursively walk a parsed JSON object looking for beer-shaped nodes.
+ * Untappd data can be nested under .menu.sections[].items[] or similar.
+ */
+function extractBeersFromObj(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 12) return [];
+
+  // Beer item: has beer_name directly or nested under .beer
+  const beerSrc = obj.beer_name ? obj : (obj.beer?.beer_name ? obj.beer : null);
+  if (beerSrc) {
+    const entry = {
+      name:     beerSrc.beer_name        || null,
+      style:    beerSrc.beer_style       || null,
+      abv:      beerSrc.beer_abv != null ? Number(beerSrc.beer_abv) : null,
+      ibu:      beerSrc.beer_ibu != null ? Number(beerSrc.beer_ibu) : null,
+      desc:     beerSrc.beer_description || null,
+      label:    beerSrc.beer_label       || null,
+      rating:   beerSrc.rating_score     || null,
+      brewery:  (obj.brewery || obj.brewer)?.brewery_name || null,
+      price:    obj.price                || null,
+      serving:  obj.serving_size         || null,
+    };
+    return entry.name ? [entry] : [];
+  }
+
+  const results = [];
+  const children = Array.isArray(obj) ? obj : Object.values(obj);
+  for (const child of children) {
+    if (child && typeof child === 'object') {
+      results.push(...extractBeersFromObj(child, depth + 1));
+    }
+  }
+  return results;
+}
+
+/**
+ * Fetch the Untappd widget JS file and parse out the beer menu data.
+ * Returns an array of beer objects, or null if parsing fails.
+ */
+async function fetchAndParseUntappdWidget(locationId) {
+  const widgetUrl = `https://widgets.untappd.com/beer_menu/v2/${locationId}`;
+  let script;
+  try {
+    const { html } = await fetchViaProxy(widgetUrl);
+    script = html;
+  } catch {
+    return null;
+  }
+  if (!script || script.length < 100) return null;
+
+  // The widget embeds all data in one large JSON object. We scan the entire
+  // script for every { … } block, try JSON.parse on each, and keep the one
+  // that yields the most beers. Largest valid JSON block wins.
+  let bestBeers = [];
+  let pos = 0;
+
+  while (pos < script.length) {
+    const nextBrace = script.indexOf('{', pos);
+    if (nextBrace === -1) break;
+
+    const candidate = extractBalancedObject(script, nextBrace);
+    if (!candidate) { pos = nextBrace + 1; continue; }
+
+    pos = nextBrace + 1; // advance before we potentially skip on parse failure
+
+    // Skip tiny objects — not data
+    if (candidate.length < 80) continue;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      // Try common fixups: single-quoted strings, trailing commas
+      try {
+        const fixed = candidate
+          .replace(/'/g, '"')
+          .replace(/,(\s*[}\]])/g, '$1');
+        parsed = JSON.parse(fixed);
+      } catch { continue; }
+    }
+
+    const beers = extractBeersFromObj(parsed);
+    if (beers.length > bestBeers.length) bestBeers = beers;
+
+    // If we've found a solid list don't keep scanning (saves time)
+    if (bestBeers.length >= 5) break;
+  }
+
+  return bestBeers.length > 0 ? bestBeers : null;
+}
+
 // ─── Main Scrape Entry Point ──────────────────────────────────────────────────
 
 /**
@@ -642,8 +761,18 @@ window.scrapeBrewery = async function(websiteUrl) {
       return result;
     }
 
-    result.hours     = extractHours(doc, schema, html);
-    result.tapList   = extractTapList(doc, html);
+    result.hours   = extractHours(doc, schema, html);
+    result.tapList = extractTapList(doc, html);
+
+    // If we found an Untappd widget ID, try to parse the actual beer data from
+    // the widget script rather than just linking to it.
+    if (result.tapList?.type === 'untappd-widget') {
+      const beers = await fetchAndParseUntappdWidget(result.tapList.id);
+      if (beers && beers.length > 0) {
+        result.tapList = { type: 'untappd-parsed', id: result.tapList.id, beers };
+      }
+    }
+
     result.events    = extractEvents(doc, schema, html);
     result.specials  = extractSpecials(doc, html);
     result.foodMenu  = extractFoodMenu(doc, schema, html);

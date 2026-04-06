@@ -347,6 +347,39 @@ function renderHours(data) {
 function renderTapList(data, website, name) {
   if (!data) return noDataHTML(website, name, 'tap list');
 
+  if (data.type === 'untappd-parsed' && data.beers?.length) {
+    const rows = data.beers.map(b => {
+      const abv     = b.abv  != null ? `<span class="beer-stat abv">${b.abv.toFixed(1)}% ABV</span>` : '';
+      const ibu     = b.ibu  != null ? `<span class="beer-stat ibu">${b.ibu} IBU</span>` : '';
+      const price   = b.price  ? `<span class="beer-stat price">${escapeHtml(b.price)}</span>` : '';
+      const serving = b.serving ? `<span class="beer-stat serving">${escapeHtml(b.serving)}</span>` : '';
+      const style   = b.style   ? `<div class="beer-style">${escapeHtml(b.style)}</div>` : '';
+      const brewery = b.brewery ? `<div class="beer-guest-brewery">${escapeHtml(b.brewery)}</div>` : '';
+      const desc    = b.desc    ? `<div class="beer-desc">${escapeHtml(truncateDisplay(b.desc, 120))}</div>` : '';
+      const label   = b.label
+        ? `<img class="beer-label-img" src="${escapeHtml(b.label)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        : `<div class="beer-label-fallback">🍺</div>`;
+      return `
+        <div class="ut-beer-row">
+          <div class="ut-beer-label">${label}</div>
+          <div class="ut-beer-info">
+            <div class="ut-beer-name">${escapeHtml(b.name)}</div>
+            ${brewery}${style}${desc}
+            <div class="ut-beer-stats">${abv}${ibu}${serving}${price}</div>
+          </div>
+        </div>`;
+    }).join('');
+    const venueUrl = `https://untappd.com/venue/${escapeHtml(data.id)}`;
+    return `
+      <div class="ut-parsed-header">
+        <span class="integration-badge">Untappd</span>
+        <a class="integration-link" href="${venueUrl}" target="_blank" rel="noopener">
+          View on Untappd ↗
+        </a>
+      </div>
+      <div class="ut-beer-list">${rows}</div>`;
+  }
+
   if (data.type === 'untappd-widget') {
     return `
       <div class="taplist-integration untappd">
