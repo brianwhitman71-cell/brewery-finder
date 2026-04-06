@@ -999,6 +999,19 @@ async function doSearch() {
 
 // ─── Location Detection ───────────────────────────────────────────────────────
 
+/** IP-based geolocation fallback — free, no key, no permission prompt */
+async function getLocationByIP() {
+  const res = await fetch('https://ipapi.co/json/');
+  if (!res.ok) throw new Error('IP geolocation failed');
+  const data = await res.json();
+  if (!data.latitude || !data.longitude) throw new Error('No coordinates from IP lookup');
+  return {
+    lat: data.latitude,
+    lng: data.longitude,
+    name: [data.city, data.region].filter(Boolean).join(', ') || data.country_name,
+  };
+}
+
 async function detectLocation() {
   useLocationBtn.classList.add('locating');
   locationInput.placeholder = 'Detecting your location…';
@@ -1007,19 +1020,31 @@ async function detectLocation() {
   currentLng = null;
 
   try {
+    // 1. Try precise browser geolocation
     const { lat, lng } = await getUserLocation();
     currentLat = lat;
     currentLng = lng;
     const locationName = await reverseGeocode(lat, lng);
     locationInput.value = locationName;
     locationInput.placeholder = '';
-    // Auto-trigger search
     await doSearch();
-  } catch (err) {
-    locationInput.placeholder = 'Enter a city or address…';
-    locationInput.value = '';
-    // Don't show error state — just let user type manually
-    console.warn('[BreweryFinder] Location detection:', err.message);
+  } catch (geoErr) {
+    console.warn('[BreweryFinder] Browser geolocation failed:', geoErr.message);
+    // 2. Fall back to IP-based geolocation (no permission needed, ~city accuracy)
+    try {
+      const { lat, lng, name } = await getLocationByIP();
+      currentLat = lat;
+      currentLng = lng;
+      locationInput.value = name;
+      locationInput.placeholder = '';
+      await doSearch();
+    } catch (ipErr) {
+      console.warn('[BreweryFinder] IP geolocation also failed:', ipErr.message);
+      // 3. Both failed — let user type manually
+      locationInput.placeholder = 'Enter a city or zip code…';
+      locationInput.value = '';
+      locationInput.focus();
+    }
   } finally {
     useLocationBtn.classList.remove('locating');
   }
