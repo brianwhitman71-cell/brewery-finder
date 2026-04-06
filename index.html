@@ -109,17 +109,6 @@
         </button>
 
         <div class="search-icon-group">
-          <button type="button" class="draw-area-btn" id="draw-area-btn" title="Draw search area on map" aria-label="Draw search area on map">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9"/>
-              <circle cx="12" cy="12" r="3.5"/>
-              <line x1="12" y1="2" x2="12" y2="5.5"/>
-              <line x1="12" y1="18.5" x2="12" y2="22"/>
-              <line x1="2" y1="12" x2="5.5" y2="12"/>
-              <line x1="18.5" y1="12" x2="22" y2="12"/>
-            </svg>
-          </button>
-
         <button type="button" class="settings-toggle-btn" id="settings-toggle-btn" title="API Key Settings" aria-label="Open API key settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3"/>
@@ -128,6 +117,14 @@
         </button>
         </div><!-- /.search-icon-group -->
       </form>
+
+      <div class="draw-area-row">
+        <span class="draw-area-divider" aria-hidden="true">— or —</span>
+        <button type="button" class="draw-area-btn" id="draw-area-btn" aria-label="Draw search area on map">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+          Draw a search area on the map
+        </button>
+      </div>
     </div>
   </header>
 
