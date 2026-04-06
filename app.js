@@ -43,6 +43,7 @@ let currentLat   = null;
 let currentLng   = null;
 let currentState = null;    // US state name, used for supplementary coord-less fetch
 let mapInstances = {};      // id → Leaflet map
+let customSearchRadius = null; // miles, set by map-draw search, overrides radius select
 let mapObserver  = null;    // IntersectionObserver for lazy map init
 let currentBreweries = [];  // filtered + sorted list currently displayed
 let currentSort  = 'distance';
@@ -1283,7 +1284,8 @@ function initMiniMap(container) {
 
 async function doSearch() {
   const locationQuery = locationInput.value.trim();
-  const radiusMiles   = parseInt(radiusSelect.value, 10);
+  const radiusMiles   = customSearchRadius ?? parseInt(radiusSelect.value, 10);
+  customSearchRadius  = null; // consume it
 
   if (!locationQuery) {
     locationInput.focus();
@@ -1429,6 +1431,199 @@ async function detectLocation() {
     useLocationBtn.classList.remove('locating');
   }
 }
+
+// ─── Draw Search Area ─────────────────────────────────────────────────────────
+
+const drawModal       = document.getElementById('draw-modal');
+const drawCloseBtn    = document.getElementById('draw-close-btn');
+const drawCancelBtn   = document.getElementById('draw-cancel-btn');
+const drawSearchBtn   = document.getElementById('draw-search-btn');
+const drawAreaBtn     = document.getElementById('draw-area-btn');
+const drawCenterText  = document.getElementById('draw-center-text');
+const drawRadiusText  = document.getElementById('draw-radius-text');
+const drawRadiusLabel = document.getElementById('draw-radius-label');
+const drawCrosshair   = document.getElementById('draw-crosshair');
+const drawInstructions= document.getElementById('draw-instructions');
+
+let drawMap        = null;
+let drawCircleLayer= null;
+let drawCenterMark = null;
+let drawRadiusTip  = null;   // Leaflet tooltip showing radius on map
+let isDrawing      = false;
+let drawStartLatLng= null;
+let finalDrawCenter= null;   // { lat, lng }
+let finalDrawRadius= null;   // miles
+
+function metersToMiles(m) { return m / 1609.344; }
+
+function openDrawModal() {
+  drawModal.hidden = false;
+  drawAreaBtn.classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  // Init map once
+  if (!drawMap) {
+    const centerLat = currentLat ?? 39.5;
+    const centerLng = currentLng ?? -98.35;
+    const zoom      = currentLat ? 10 : 4;
+
+    drawMap = L.map('draw-map', {
+      center: [centerLat, centerLng],
+      zoom,
+      zoomControl: true,
+      attributionControl: true,
+    });
+
+    L.tileLayer(TILE_URL, {
+      attribution: TILE_ATTR,
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(drawMap);
+
+    // ── Drawing interaction ──────────────────────────────────────────────────
+    drawMap.on('mousedown touchstart', onDrawStart);
+    drawMap.on('mousemove touchmove',  onDrawMove);
+    drawMap.on('mouseup touchend',     onDrawEnd);
+
+    // Prevent map drag while drawing our circle
+    drawMap.on('mousedown touchstart', () => { drawMap.dragging.disable(); });
+    drawMap.on('mouseup touchend',     () => { drawMap.dragging.enable(); });
+  } else {
+    drawMap.invalidateSize();
+    if (currentLat && !finalDrawCenter) {
+      drawMap.setView([currentLat, currentLng], 10);
+    }
+  }
+}
+
+function closeDrawModal() {
+  drawModal.hidden = true;
+  drawAreaBtn.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function onDrawStart(e) {
+  const latlng = e.latlng || e.touches?.[0]?._latlng || drawMap.mouseEventToLatLng(e.originalEvent);
+  if (!latlng) return;
+  isDrawing = true;
+  drawStartLatLng = latlng;
+
+  // Remove old layers
+  if (drawCircleLayer) { drawMap.removeLayer(drawCircleLayer); drawCircleLayer = null; }
+  if (drawCenterMark)  { drawMap.removeLayer(drawCenterMark);  drawCenterMark  = null; }
+  if (drawRadiusTip)   { drawMap.removeLayer(drawRadiusTip);   drawRadiusTip   = null; }
+
+  drawCircleLayer = L.circle(latlng, {
+    radius: 1,
+    color: '#b87333',
+    fillColor: '#b87333',
+    fillOpacity: 0.1,
+    weight: 2,
+    dashArray: '7 5',
+    interactive: false,
+  }).addTo(drawMap);
+
+  drawCenterMark = L.circleMarker(latlng, {
+    radius: 5,
+    color: '#ece2c8',
+    fillColor: '#b87333',
+    fillOpacity: 1,
+    weight: 2,
+    interactive: false,
+  }).addTo(drawMap);
+
+  drawCrosshair.classList.add('hidden');
+  drawSearchBtn.disabled = true;
+  finalDrawCenter = null;
+  finalDrawRadius = null;
+  drawRadiusLabel.hidden = true;
+}
+
+function onDrawMove(e) {
+  if (!isDrawing || !drawStartLatLng) return;
+  const latlng = e.latlng || drawMap.mouseEventToLatLng(e.originalEvent);
+  if (!latlng) return;
+
+  const radiusM   = drawMap.distance(drawStartLatLng, latlng);
+  const radiusMi  = metersToMiles(radiusM);
+
+  drawCircleLayer.setRadius(radiusM);
+
+  // Live footer update
+  drawRadiusText.textContent = radiusMi.toFixed(1) + ' mi radius';
+  document.getElementById('draw-radius-label').hidden = false;
+
+  // Floating tooltip near edge of circle
+  if (drawRadiusTip) drawMap.removeLayer(drawRadiusTip);
+  if (radiusM > 200) {
+    drawRadiusTip = L.tooltip({ permanent: true, className: 'draw-radius-label', direction: 'right', offset: [8, 0] })
+      .setLatLng(latlng)
+      .setContent(radiusMi.toFixed(1) + ' mi')
+      .addTo(drawMap);
+  }
+
+  drawInstructions.textContent = 'Release to set your search area';
+}
+
+function onDrawEnd(e) {
+  if (!isDrawing || !drawStartLatLng) return;
+  isDrawing = false;
+
+  const latlng  = e.latlng || drawMap.mouseEventToLatLng(e.originalEvent);
+  const endLatLng = latlng || drawStartLatLng;
+  const radiusM   = drawMap.distance(drawStartLatLng, endLatLng);
+  const radiusMi  = metersToMiles(radiusM);
+
+  if (radiusMi < 0.5) {
+    // Too small — reset
+    if (drawCircleLayer) { drawMap.removeLayer(drawCircleLayer); drawCircleLayer = null; }
+    if (drawCenterMark)  { drawMap.removeLayer(drawCenterMark);  drawCenterMark  = null; }
+    drawCrosshair.classList.remove('hidden');
+    drawInstructions.textContent = 'Click and drag to draw a circle';
+    drawCenterText.textContent = 'No area drawn yet';
+    document.getElementById('draw-radius-label').hidden = true;
+    return;
+  }
+
+  finalDrawCenter = { lat: drawStartLatLng.lat, lng: drawStartLatLng.lng };
+  finalDrawRadius = radiusMi;
+
+  // Update footer info
+  drawCenterText.textContent = `${finalDrawCenter.lat.toFixed(4)}, ${finalDrawCenter.lng.toFixed(4)}`;
+  drawRadiusText.textContent = radiusMi.toFixed(1) + ' mi radius';
+  document.getElementById('draw-radius-label').hidden = false;
+  drawSearchBtn.disabled = false;
+  drawInstructions.textContent = 'Redraw to adjust · Click "Search This Area" when ready';
+
+  // Async: reverse-geocode the center to show a friendly name
+  reverseGeocode(finalDrawCenter.lat, finalDrawCenter.lng).then(({ name }) => {
+    if (finalDrawCenter) drawCenterText.textContent = name;
+  }).catch(() => {});
+
+  // Remove floating tooltip
+  if (drawRadiusTip) { drawMap.removeLayer(drawRadiusTip); drawRadiusTip = null; }
+}
+
+function searchDrawnArea() {
+  if (!finalDrawCenter || !finalDrawRadius) return;
+
+  currentLat = finalDrawCenter.lat;
+  currentLng = finalDrawCenter.lng;
+  customSearchRadius = finalDrawRadius;
+
+  // Show friendly radius in status
+  const radiusDisplay = finalDrawRadius.toFixed(1);
+  const centerLabel   = drawCenterText.textContent;
+  locationInput.value = centerLabel;
+
+  closeDrawModal();
+  doSearch();
+}
+
+drawAreaBtn.addEventListener('click', openDrawModal);
+drawCloseBtn.addEventListener('click', closeDrawModal);
+drawCancelBtn.addEventListener('click', closeDrawModal);
+drawSearchBtn.addEventListener('click', searchDrawnArea);
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────
 
