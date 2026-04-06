@@ -1109,6 +1109,189 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 ::-webkit-scrollbar-thumb { background: var(--border-bright); }
 ::-webkit-scrollbar-thumb:hover { background: var(--copper); }
 
+/* ─── Settings Panel ─────────────────────────── */
+.settings-toggle-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin-left: auto;
+  transition: color var(--t), border-color var(--t), background var(--t);
+  flex-shrink: 0;
+}
+.settings-toggle-btn svg { width: 1rem; height: 1rem; display: block; }
+.settings-toggle-btn:hover {
+  color: var(--copper);
+  border-color: var(--border-bright);
+  background: var(--gold-faint);
+}
+.settings-toggle-btn.has-keys { color: var(--copper); border-color: var(--border-bright); }
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 199;
+  backdrop-filter: blur(2px);
+}
+
+.settings-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-bright);
+  z-index: 200;
+  overflow-y: auto;
+  box-shadow: -8px 0 40px rgba(0,0,0,0.7);
+}
+.settings-panel[hidden] { display: none !important; }
+
+.settings-panel-inner { padding: 2rem 1.75rem 3rem; }
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.settings-title {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  color: var(--copper);
+  letter-spacing: 0.03em;
+}
+.settings-close-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--t), border-color var(--t);
+}
+.settings-close-btn:hover { color: var(--cream); border-color: var(--border-bright); }
+
+.settings-intro {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.settings-field {
+  margin-bottom: 1.5rem;
+}
+.settings-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.settings-source-name {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--cream);
+}
+.settings-signup-link {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--copper);
+  text-decoration: none;
+  letter-spacing: 0.03em;
+}
+.settings-signup-link:hover { color: var(--copper-light); text-decoration: underline; }
+
+.settings-key-input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.55rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--cream);
+  outline: none;
+  transition: border-color var(--t);
+}
+.settings-key-input:focus { border-color: var(--border-bright); }
+.settings-key-input::placeholder { color: var(--text-muted); }
+
+.settings-hint {
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  color: var(--text-muted);
+  margin-top: 0.35rem;
+  letter-spacing: 0.02em;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+.settings-save-btn {
+  background: var(--copper);
+  color: var(--bg-deep);
+  border: none;
+  border-radius: 4px;
+  padding: 0.6rem 1.5rem;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background var(--t);
+  letter-spacing: 0.04em;
+}
+.settings-save-btn:hover { background: var(--copper-light); }
+.settings-saved-msg {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: #7ac99a;
+  letter-spacing: 0.05em;
+}
+
+.settings-active-sources {
+  margin-top: 1.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.active-source-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+}
+.active-source-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-active   { background: #7ac99a; }
+.dot-inactive { background: var(--text-muted); }
+
 /* ─── Source Badge (OSM etc.) ────────────────── */
 .source-badge {
   font-family: var(--font-mono);
@@ -1124,6 +1307,16 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   background: rgba(78,121,91,0.2);
   color: #7ac99a;
   border: 1px solid rgba(78,121,91,0.35);
+}
+.source-foursquare {
+  background: rgba(249,72,49,0.15);
+  color: #f79080;
+  border: 1px solid rgba(249,72,49,0.3);
+}
+.source-here {
+  background: rgba(0,130,210,0.15);
+  color: #6ab8e8;
+  border: 1px solid rgba(0,130,210,0.3);
 }
 
 /* ─── Untappd Parsed Beer Cards ──────────────── */
