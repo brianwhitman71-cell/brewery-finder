@@ -116,11 +116,17 @@
   ══════════════════════════════════════════ -->
   <main class="main-content" id="main-content">
 
-    <!-- Status Bar -->
+    <!-- Status Bar + Sort Controls -->
     <div id="status-bar" class="status-bar" aria-live="polite" hidden>
       <div class="status-inner">
         <span class="status-diamond" aria-hidden="true">◆</span>
         <span id="status-text"></span>
+      </div>
+      <div class="sort-controls" role="group" aria-label="Sort results">
+        <span class="sort-label">Sort:</span>
+        <button class="sort-btn active" data-sort="distance" aria-pressed="true">Distance</button>
+        <button class="sort-btn" data-sort="alpha" aria-pressed="false">A–Z</button>
+        <button class="sort-btn" data-sort="open" aria-pressed="false">Open Now</button>
       </div>
     </div>
 

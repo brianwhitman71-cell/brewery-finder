@@ -298,6 +298,11 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   margin-bottom: 1.75rem;
   padding: 0.6rem 0;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 .status-inner {
   display: flex;
@@ -308,6 +313,95 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   color: var(--text-secondary);
 }
 .status-diamond { color: var(--copper); font-size: 0.55rem; }
+
+/* ─── Sort Controls ──────────────────────────── */
+.sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.sort-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  margin-right: 0.2rem;
+}
+.sort-btn {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.65rem;
+  transition: all var(--t);
+  background: transparent;
+}
+.sort-btn:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-bright);
+  background: var(--gold-faint);
+}
+.sort-btn.active {
+  color: var(--copper-light);
+  border-color: rgba(212,148,63,0.5);
+  background: rgba(184,115,51,0.1);
+}
+
+/* ─── Closure Warning Banner ─────────────────── */
+.closure-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  background: rgba(160,60,40,0.12);
+  border-bottom: 1px solid rgba(200,80,60,0.25);
+  font-size: 0.78rem;
+}
+.closure-warning-icon {
+  color: #c05040;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  margin-top: 0.05em;
+}
+.closure-warning-text {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-family: var(--font-body);
+}
+.closure-warning-text strong { color: #c06050; }
+.closure-reasons {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  line-height: 1.4;
+}
+
+/* Card dimmed when possibly closed */
+.card-possibly-closed {
+  opacity: 0.75;
+  filter: saturate(0.6);
+}
+.card-possibly-closed:hover {
+  opacity: 0.9;
+  filter: saturate(0.8);
+}
+
+/* Confirmed-closed card removal animation */
+@keyframes card-out {
+  0%   { opacity: 1; transform: translateX(0)   scaleY(1); max-height: 600px; }
+  40%  { opacity: 0; transform: translateX(-12px) scaleY(1); max-height: 600px; }
+  100% { opacity: 0; transform: translateX(-12px) scaleY(0); max-height: 0; margin: 0; padding: 0; border: none; }
+}
+.card-closing {
+  animation: card-out 0.45s ease forwards;
+  overflow: hidden;
+  pointer-events: none;
+}
 
 /* ─── Loading State ──────────────────────────── */
 .loading-state {

@@ -51,8 +51,187 @@ class Queue {
 
 window.scrapeQueue = new Queue(MAX_CONCURRENT);
 
+// ─── Closure Detection ────────────────────────────────────────────────────────
+
+// Strong signals: explicitly stating closure → confirmed closed
+const CLOSURE_STRONG = [
+  /permanently\s+closed/i,
+  /permanently\s+closing/i,
+  /we(?:'ve|\s+have)\s+(?:permanently\s+)?closed\s+(?:our\s+)?doors/i,
+  /closed\s+(?:our|its)\s+doors\s+(?:for\s+good|permanently|forever)/i,
+  /no\s+longer\s+(?:open|in\s+business|operating|brewing|serving\s+(?:beer|guests))/i,
+  /(?:gone|going)\s+out\s+of\s+business/i,
+  /out\s+of\s+business/i,
+  /ceased\s+(?:all\s+)?(?:operations?|business|brewing|production)/i,
+  /our\s+(?:final|last)\s+(?:day|pour|pint|service)\s+(?:was|will\s+be)/i,
+  /(?:closed|closing)\s+(?:for\s+)?good/i,
+  /we\s+(?:are|were)\s+(?:officially\s+)?closed/i,
+  /(?:business|taproom|brewery|brewpub)\s+(?:is\s+)?(?:now\s+)?closed\s+permanently/i,
+];
+
+// Domain parking / dead site
+const PARKING_PATTERNS = [
+  /this\s+domain\s+(?:name\s+)?(?:is\s+)?(?:for\s+sale|has\s+been\s+registered|is\s+parked)/i,
+  /domain\s+(?:is\s+)?parked/i,
+  /buy\s+this\s+domain/i,
+  /domain\s+not\s+(?:configured|found)/i,
+  /(?:your\s+)?account\s+(?:has\s+been\s+)?suspended/i,
+  /this\s+(?:site|page|website)\s+(?:is\s+)?(?:under\s+construction|coming\s+soon)/i,
+  /godaddy\.com\/domains\/find/i,
+  /namecheap\.com\/domains\/registration/i,
+  /sedo\.com/i,
+];
+
+// Moderate signals: softer language — need multiple or combine with HTTP error
+const CLOSURE_MODERATE = [
+  /(?:sadly|unfortunately|regrettably),?\s+(?:we\s+)?(?:are\s+|have\s+|will\s+be\s+)?clos/i,
+  /(?:farewell|goodbye)\s+(?:from|to|dear|and\s+thank)/i,
+  /(?:thank\s+you\s+for\s+(?:your\s+)?(?:\d+\s+)?(?:amazing\s+)?years)/i,
+  /it\s+has\s+been\s+(?:an?\s+)?(?:honor|pleasure|privilege|wonderful\s+journey|great\s+run)/i,
+  /we\s+(?:are|were)\s+(?:closing|shutting)\s+(?:our\s+(?:doors|taproom|brewery))/i,
+  /our\s+last\s+day\s+(?:open\s+)?(?:was|will\s+be)/i,
+  /(?:we\s+have|we've)\s+made\s+the\s+(?:difficult\s+)?decision\s+to\s+close/i,
+  /effective\s+(?:immediately|[a-z]+\s+\d)/i,
+];
+
+function getClosureSnippet(text, pattern) {
+  const m = text.match(pattern);
+  if (!m) return null;
+  const start = Math.max(0, m.index - 15);
+  const end   = Math.min(text.length, m.index + m[0].length + 60);
+  return '"…' + text.slice(start, end).replace(/\s+/g, ' ').trim() + '…"';
+}
+
+/**
+ * Score closure signals. Returns:
+ *   { score, confirmed (bool), possible (bool), reasons[] }
+ *
+ * score >= 8  → confirmed closed  (remove from results)
+ * score 4–7   → possibly closed   (show warning)
+ * score < 4   → assume open
+ */
+function detectClosure(html, httpStatus, schema) {
+  const reasons = [];
+  let score = 0;
+
+  // HTTP-level signals
+  if (httpStatus === 410) {
+    score += 8;
+    reasons.push('Website returns HTTP 410 (Gone — resource permanently removed)');
+  } else if (httpStatus === 404) {
+    score += 3;
+    reasons.push('Website returns HTTP 404 (page not found)');
+  } else if (httpStatus >= 500) {
+    score += 1; // Server error — probably not closed, just broken
+  }
+
+  // Schema.org BusinessStatus
+  const schemaStr = JSON.stringify(schema);
+  if (/PermanentlyClosed/i.test(schemaStr)) {
+    score += 10;
+    reasons.push('Listed as Permanently Closed in schema.org structured data');
+  }
+
+  // Check first 100KB of content to avoid scanning huge pages
+  const text = (html || '').slice(0, 100000);
+  if (!text) {
+    // Empty response — treat like 404 if we don't already have HTTP status
+    if (score === 0) { score += 2; reasons.push('Empty response from website'); }
+    return { score, confirmed: score >= 8, possible: score >= 4, reasons };
+  }
+
+  // Strong closure language
+  for (const pattern of CLOSURE_STRONG) {
+    const snippet = getClosureSnippet(text, pattern);
+    if (snippet) {
+      score += 10;
+      reasons.push(`Closure language detected: ${snippet}`);
+      break; // one strong match is enough
+    }
+  }
+
+  // Domain parking
+  for (const pattern of PARKING_PATTERNS) {
+    if (pattern.test(text)) {
+      score += 8;
+      reasons.push('Website appears to be a domain parking / expired page');
+      break;
+    }
+  }
+
+  // Moderate closure language
+  let moderateCount = 0;
+  for (const pattern of CLOSURE_MODERATE) {
+    if (pattern.test(text)) moderateCount++;
+  }
+  if (moderateCount >= 2) {
+    score += 4;
+    reasons.push(`Multiple soft closure indicators found on page (${moderateCount} matches)`);
+  } else if (moderateCount === 1) {
+    score += 2;
+    reasons.push('Soft closure language found on page');
+  }
+
+  // Very short page with no real content (often parked/dead)
+  if (text.length < 500 && !/<!DOCTYPE|<html/i.test(text)) {
+    score += 2;
+    reasons.push('Website returned unusually short content');
+  }
+
+  return {
+    score,
+    confirmed: score >= 8,
+    possible:  score >= 4 && score < 8,
+    reasons,
+  };
+}
+
+// ─── Wayback Machine Check ────────────────────────────────────────────────────
+
+/**
+ * Check Wayback Machine CDX API for recent snapshots.
+ * Only called when we already have a medium+ closure signal (to avoid unnecessary requests).
+ * Returns { hasRecentSnapshot, lastTimestamp } or null on failure.
+ */
+async function checkWayback(websiteUrl) {
+  try {
+    const domain = new URL(websiteUrl).hostname;
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const from = oneYearAgo.toISOString().replace(/\D/g,'').slice(0, 8);
+
+    // CDX API: find any snapshot of the domain in the past year
+    const cdxUrl =
+      `https://web.archive.org/cdx/search/cdx` +
+      `?url=${encodeURIComponent(domain)}/*` +
+      `&output=json&limit=1&fl=timestamp&from=${from}&matchType=domain&collapse=urlkey`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(cdxUrl, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    // First row is header ["timestamp"], rest are results
+    if (data.length > 1) {
+      return { hasRecentSnapshot: true, lastTimestamp: data[1][0] };
+    }
+
+    // No snapshot in past year — check if it ever existed at all
+    const allUrl =
+      `https://web.archive.org/cdx/search/cdx` +
+      `?url=${encodeURIComponent(domain)}/*&output=json&limit=1&fl=timestamp&matchType=domain&collapse=urlkey`;
+    const allRes = await fetch(allUrl, { signal: AbortSignal.timeout(6000) });
+    const allData = await allRes.json();
+    return { hasRecentSnapshot: false, everArchived: allData.length > 1 };
+  } catch {
+    return null; // Wayback unavailable — ignore
+  }
+}
+
 // ─── Fetch Helpers ────────────────────────────────────────────────────────────
 
+/** Returns { html, httpStatus } */
 async function fetchViaProxy(url) {
   let lastErr;
   for (const makeUrl of PROXIES) {
@@ -61,16 +240,14 @@ async function fetchViaProxy(url) {
     try {
       const res = await fetch(makeUrl(url), { signal: controller.signal });
       clearTimeout(timer);
-      if (!res.ok) { lastErr = new Error(`HTTP ${res.status}`); continue; }
-      // allorigins wraps in JSON; corsproxy returns raw HTML
+      if (!res.ok) { lastErr = new Error(`Proxy HTTP ${res.status}`); continue; }
       const text = await res.text();
       try {
         const json = JSON.parse(text);
-        if (json.status && json.status.http_code >= 400)
-          throw new Error(`Origin returned ${json.status.http_code}`);
-        return json.contents || '';
+        const httpStatus = json.status?.http_code ?? 200;
+        return { html: json.contents || '', httpStatus };
       } catch {
-        return text; // corsproxy-style raw response
+        return { html: text, httpStatus: 200 };
       }
     } catch (err) {
       clearTimeout(timer);
@@ -424,27 +601,55 @@ function resolveUrl(href, baseUrl) {
  * @returns {Promise<{hours, tapList, events, specials, foodMenu, foodTruck, error}>}
  */
 window.scrapeBrewery = async function(websiteUrl) {
-  const result = { hours: null, tapList: null, events: null, specials: null, foodMenu: null, foodTruck: null, error: null };
+  const result = {
+    hours: null, tapList: null, events: null, specials: null,
+    foodMenu: null, foodTruck: null,
+    closure: null,
+    error: null,
+  };
 
   try {
-    const html = await fetchViaProxy(websiteUrl);
+    const { html, httpStatus } = await fetchViaProxy(websiteUrl);
+
+    const doc    = parseHtml(html || '');
+    const schema = allSchemaItems(extractJsonLd(doc));
+
+    // ── Closure detection (runs before content extraction) ──────────────────
+    const closureCheck = detectClosure(html, httpStatus, schema);
+
+    // If closure is only medium-confidence, run Wayback Machine to boost/confirm
+    if (closureCheck.possible && !closureCheck.confirmed) {
+      const wayback = await checkWayback(websiteUrl);
+      if (wayback && !wayback.hasRecentSnapshot) {
+        closureCheck.score += 4;
+        if (wayback.everArchived) {
+          closureCheck.reasons.push('No Wayback Machine snapshot in the past 12 months (was previously archived)');
+        } else {
+          closureCheck.reasons.push('No Wayback Machine snapshot found for this domain at all');
+        }
+        closureCheck.confirmed = closureCheck.score >= 8;
+        closureCheck.possible  = closureCheck.score >= 4 && !closureCheck.confirmed;
+      }
+    }
+
+    result.closure = closureCheck;
+
+    // If high-confidence closure, skip full content extraction (save time)
+    if (closureCheck.confirmed) return result;
+
     if (!html || html.length < 200) {
       result.error = 'Empty or blocked response';
       return result;
     }
 
-    const doc    = parseHtml(html);
-    const schema = allSchemaItems(extractJsonLd(doc));
-
-    result.hours    = extractHours(doc, schema, html);
-    result.tapList  = extractTapList(doc, html);
-    result.events   = extractEvents(doc, schema, html);
-    result.specials = extractSpecials(doc, html);
-    result.foodMenu = extractFoodMenu(doc, schema, html);
+    result.hours     = extractHours(doc, schema, html);
+    result.tapList   = extractTapList(doc, html);
+    result.events    = extractEvents(doc, schema, html);
+    result.specials  = extractSpecials(doc, html);
+    result.foodMenu  = extractFoodMenu(doc, schema, html);
     result.foodTruck = extractFoodTruck(doc, html);
 
-    // Resolve relative menu URLs
-    if (result.foodMenu && result.foodMenu.href && !result.foodMenu.href.startsWith('http')) {
+    if (result.foodMenu?.href && !result.foodMenu.href.startsWith('http')) {
       result.foodMenu.href = resolveUrl(result.foodMenu.href, websiteUrl);
     }
 

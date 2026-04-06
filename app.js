@@ -32,8 +32,12 @@ const TYPE_LABELS = {
 
 let currentLat = null;
 let currentLng = null;
-let mapInstances = {};   // id → Leaflet map
-let mapObserver = null;  // IntersectionObserver for lazy map init
+let mapInstances = {};      // id → Leaflet map
+let mapObserver = null;     // IntersectionObserver for lazy map init
+let currentBreweries = [];  // filtered + sorted list currently displayed
+let currentSort = 'distance';
+let scrapedDataCache = {};  // breweryId → scrape results (for sort-by-open)
+let visibleCount = 0;       // tracks how many cards are still shown after closure removal
 
 // ─── DOM References ─────────────────────────────────────────────────────────
 
@@ -51,6 +55,7 @@ const errorMessage    = document.getElementById('error-message');
 const emptyState      = document.getElementById('empty-state');
 const welcomeState    = document.getElementById('welcome-state');
 const retryBtn        = document.getElementById('retry-btn');
+const sortBtns        = document.querySelectorAll('.sort-btn');
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
@@ -592,13 +597,114 @@ function renderBreweryCard(brewery, index) {
   `;
 }
 
-function renderBreweries(breweries) {
-  // Destroy previous maps
-  for (const [id, map] of Object.entries(mapInstances)) {
-    map.remove();
+// ─── Sort ─────────────────────────────────────────────────────────────────────
+
+const SCHEMA_DAY = { Mo:1, Tu:2, We:3, Th:4, Fr:5, Sa:6, Su:0 };
+
+/**
+ * Try to determine if a brewery is open right now from scraped hours data.
+ * Returns true (open), false (closed right now), or null (unknown).
+ */
+function isOpenNow(breweryId) {
+  const data = scrapedDataCache[breweryId];
+  if (!data?.hours) return null;
+  const { src, lines } = data.hours;
+  if (src !== 'schema' || !lines?.length) return null;
+
+  const now     = new Date();
+  const today   = now.getDay();     // 0=Sun…6=Sat
+  const minutes = now.getHours() * 60 + now.getMinutes();
+
+  for (const line of lines) {
+    // "Mon–Fri: 11:00 AM – 10:00 PM" — our formatted output
+    // Re-parse the raw schema line from scraper which is stored as formatted text.
+    // Scraper stores raw schema as "Mo-Fr 11:00-22:00" before formatting.
+    // We stored formatted, so parse that:
+    const m = line.match(/^(\w{3})(?:–(\w{3}))?:\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*–\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+    if (!m) continue;
+    const [, d1str, d2str, h1, m1='0', p1, h2, m2='0', p2] = m;
+
+    const dayAbbr = { Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6,Sun:0 };
+    const d1 = dayAbbr[d1str];
+    const d2 = d2str ? dayAbbr[d2str] : d1;
+    if (d1 === undefined) continue;
+
+    // Build day range (handle wrap like Fri–Sun: 5,6,0)
+    const daysInRange = [];
+    if (d1 <= d2) {
+      for (let d = d1; d <= d2; d++) daysInRange.push(d);
+    } else {
+      for (let d = d1; d <= 6; d++) daysInRange.push(d);
+      for (let d = 0; d <= d2; d++) daysInRange.push(d);
+    }
+    if (!daysInRange.includes(today)) continue;
+
+    const to24 = (h, m, p) => {
+      let hr = parseInt(h);
+      if (p.toUpperCase() === 'PM' && hr !== 12) hr += 12;
+      if (p.toUpperCase() === 'AM' && hr === 12) hr = 0;
+      return hr * 60 + parseInt(m);
+    };
+    const open  = to24(h1, m1, p1);
+    let   close = to24(h2, m2, p2);
+    if (close < open) close += 24 * 60; // past midnight
+
+    if (minutes >= open && minutes < close) return true;
   }
+  return false; // has hours but none match now
+}
+
+function sortedBreweries(breweries, sort) {
+  const list = [...breweries];
+  if (sort === 'alpha') {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sort === 'open') {
+    const rank = id => {
+      const s = isOpenNow(id);
+      return s === true ? 0 : s === null ? 1 : 2;
+    };
+    list.sort((a, b) => rank(a.id) - rank(b.id) || a._distance - b._distance);
+  } else {
+    list.sort((a, b) => a._distance - b._distance);
+  }
+  return list;
+}
+
+function applySort(sort) {
+  currentSort = sort;
+
+  // Update button states
+  sortBtns.forEach(btn => {
+    const active = btn.dataset.sort === sort;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active);
+  });
+
+  // Re-order cards in DOM without re-rendering (maps/scrapes stay intact)
+  const sorted = sortedBreweries(currentBreweries, sort);
+  sorted.forEach(b => {
+    const card = document.getElementById(`card-${b.id}`);
+    if (card) breweryGrid.appendChild(card); // moves to end in sorted order
+  });
+}
+
+function renderBreweries(breweries) {
+  currentBreweries = breweries;
+  scrapedDataCache = {};
+  visibleCount = breweries.length;
+
+  // Destroy previous maps
+  for (const map of Object.values(mapInstances)) map.remove();
   mapInstances = {};
   if (mapObserver) mapObserver.disconnect();
+
+  // Reset sort to distance on new search
+  currentSort = 'distance';
+  sortBtns.forEach(btn => {
+    const active = btn.dataset.sort === 'distance';
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active);
+  });
 
   breweryGrid.innerHTML = breweries.map((b, i) => renderBreweryCard(b, i)).join('');
 
@@ -672,21 +778,82 @@ function applyScrapeResults(brewery, results) {
   const { id, name, website_url: website, brewery_type: type } = brewery;
   const isFood = ['brewpub', 'bar'].includes(type);
 
+  // ── Closure handling ───────────────────────────────────────────────────────
+  const closure = results.closure;
+
+  if (closure?.confirmed) {
+    removeClosedCard(id, name, closure.reasons);
+    return;
+  }
+
+  if (closure?.possible) {
+    showClosureWarning(id, closure.reasons);
+  }
+
+  // ── Cache hours for sort-by-open ───────────────────────────────────────────
+  scrapedDataCache[id] = results;
+
+  // ── Fill sections ──────────────────────────────────────────────────────────
   setSectionContent(id, 'hours',     renderHours(results.hours));
   setSectionContent(id, 'taplist',   renderTapList(results.tapList, website, name));
   setSectionContent(id, 'events',    renderEvents(results.events, website, name));
   setSectionContent(id, 'specials',  renderSpecials(results.specials, website, name));
-  if (isFood) {
+  if (isFood || results.foodMenu) {
     setSectionContent(id, 'food',    renderFoodMenu(results.foodMenu, website, name));
   } else {
-    // Non-food brewery — still show food menu if we found one
-    if (results.foodMenu) {
-      setSectionContent(id, 'food',  renderFoodMenu(results.foodMenu, website, name));
-    } else {
-      setSectionContent(id, 'food',  `<p class="section-unavailable">Not a food-serving venue.</p>`);
-    }
+    setSectionContent(id, 'food',    `<p class="section-unavailable">Not a food-serving venue.</p>`);
   }
   setSectionContent(id, 'foodtruck', renderFoodTruck(results.foodTruck, website, name));
+
+  // Re-apply sort if user is on "Open Now" (new data may change ranking)
+  if (currentSort === 'open') applySort('open');
+}
+
+function removeClosedCard(id, name, reasons) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+
+  visibleCount--;
+  updateStatusCount();
+
+  card.classList.add('card-closing');
+  card.setAttribute('aria-label', `${name} — permanently closed`);
+
+  // After animation, remove from DOM entirely
+  card.addEventListener('animationend', () => card.remove(), { once: true });
+
+  // Remove from currentBreweries so sort doesn't include it
+  currentBreweries = currentBreweries.filter(b => b.id !== id);
+}
+
+function showClosureWarning(id, reasons) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+
+  const banner = document.createElement('div');
+  banner.className = 'closure-warning';
+  banner.innerHTML = `
+    <span class="closure-warning-icon">⚠</span>
+    <span class="closure-warning-text">
+      <strong>Possibly Closed</strong> — This brewery may no longer be in business.
+      <span class="closure-reasons">${escapeHtml((reasons || []).join(' · '))}</span>
+    </span>
+  `;
+  card.insertBefore(banner, card.firstChild);
+  card.classList.add('card-possibly-closed');
+}
+
+function updateStatusCount() {
+  if (visibleCount === 0) {
+    showState(emptyState);
+    setStatus('');
+    return;
+  }
+  const radius = radiusSelect.value;
+  const loc    = locationInput.value.trim();
+  const txt    = statusText.textContent;
+  // Replace the leading number in the existing status text
+  statusText.textContent = txt.replace(/^\d+/, visibleCount);
 }
 
 // ─── Untappd Widget Loader (on-demand) ───────────────────────────────────────
@@ -890,6 +1057,10 @@ locationInput.addEventListener('input', () => {
 useLocationBtn.addEventListener('click', detectLocation);
 
 retryBtn.addEventListener('click', doSearch);
+
+sortBtns.forEach(btn => {
+  btn.addEventListener('click', () => applySort(btn.dataset.sort));
+});
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
