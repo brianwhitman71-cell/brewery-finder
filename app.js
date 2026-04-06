@@ -13,7 +13,6 @@ const BREWERY_API      = 'https://api.openbrewerydb.org/v1/breweries';
 const NOMINATIM_API    = 'https://nominatim.openstreetmap.org';
 const OVERPASS_API     = 'https://overpass-api.de/api/interpreter';
 const FOURSQUARE_API   = 'https://api.foursquare.com/v3/places/search';
-const HERE_DISCOVER    = 'https://discover.search.hereapi.com/v1/discover';
 const TILE_URL         = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 const TILE_ATTR        = '&copy; <a href="https://carto.com">CARTO</a>';
 
@@ -21,9 +20,7 @@ const TILE_ATTR        = '&copy; <a href="https://carto.com">CARTO</a>';
 
 const apiKeys = {
   get foursquare() { return localStorage.getItem('bf_fsq_key') || ''; },
-  get here()       { return localStorage.getItem('bf_here_key') || ''; },
   set foursquare(v) { v ? localStorage.setItem('bf_fsq_key', v) : localStorage.removeItem('bf_fsq_key'); },
-  set here(v)       { v ? localStorage.setItem('bf_here_key', v) : localStorage.removeItem('bf_here_key'); },
 };
 
 const TYPE_LABELS = {
@@ -394,60 +391,6 @@ async function fetchBreweriesFromFoursquare(lat, lng, radiusMiles) {
   }
 }
 
-// ─── HERE Places API ──────────────────────────────────────────────────────────
-
-function hereCategoryToType(cats) {
-  if (!cats?.length) return 'micro';
-  const name = (cats[0].name || '').toLowerCase();
-  if (name.includes('brewpub') || name.includes('pub')) return 'brewpub';
-  return 'micro';
-}
-
-function hereToBrewery(item) {
-  const addr = item.address || {};
-  const pos  = item.position || {};
-  const phone   = item.contacts?.[0]?.phone?.[0]?.value || null;
-  const website = item.contacts?.[0]?.www?.[0]?.value   || null;
-  if (!item.title) return null;
-  return {
-    id:             `here-${String(item.id).replace(/[^a-zA-Z0-9]/g, '-')}`,
-    name:           item.title,
-    brewery_type:   hereCategoryToType(item.categories),
-    address_1:      addr.street || null,
-    address_2:      null,
-    address_3:      null,
-    city:           addr.city || null,
-    state_province: addr.stateCode || addr.state || null,
-    state:          addr.stateCode || addr.state || null,
-    postal_code:    addr.postalCode || null,
-    country:        addr.countryName || 'United States',
-    latitude:       pos.lat != null ? String(pos.lat) : null,
-    longitude:      pos.lng != null ? String(pos.lng) : null,
-    phone:          phone || null,
-    website_url:    website || null,
-    _source:        'here',
-  };
-}
-
-async function fetchBreweriesFromHERE(lat, lng, radiusMiles) {
-  const key = apiKeys.here;
-  if (!key) return [];
-  try {
-    const radiusM = Math.round(radiusMiles * 1609.34);
-    // Search for "brewery" within the circle; limit 100 (HERE max per call)
-    const url = `${HERE_DISCOVER}?at=${lat},${lng}&q=brewery&in=circle%3A${lat}%2C${lng}%3Br%3D${radiusM}&limit=100&apiKey=${encodeURIComponent(key)}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) {
-      console.warn('[BreweryFinder] HERE error:', res.status, await res.text());
-      return [];
-    }
-    const data = await res.json();
-    return (data.items || []).map(hereToBrewery).filter(Boolean);
-  } catch (err) {
-    console.warn('[BreweryFinder] HERE fetch error:', err.message);
-    return [];
-  }
-}
 
 /**
  * If we don't yet have the state stored, fetch it from reverse geocode.
@@ -948,7 +891,7 @@ function renderBreweryCard(brewery, index) {
         <div class="card-info-col">
           <div class="card-top">
             <span class="brewery-type-badge type-${escapeHtml(type)}">${escapeHtml(typeLabel)}</span>
-            ${{ osm: '<span class="source-badge source-osm" title="Found via OpenStreetMap">OSM</span>', foursquare: '<span class="source-badge source-foursquare" title="Found via Foursquare Places">4SQ</span>', here: '<span class="source-badge source-here" title="Found via HERE Places">HERE</span>' }[brewery._source] || ''}
+            ${{ osm: '<span class="source-badge source-osm" title="Found via OpenStreetMap">OSM</span>', foursquare: '<span class="source-badge source-foursquare" title="Found via Foursquare Places">4SQ</span>' }[brewery._source] || ''}
             ${ownershipHTML}
           </div>
           <h2 class="brewery-name">${escapeHtml(name)}</h2>
@@ -1373,12 +1316,11 @@ async function doSearch() {
     await ensureState(lat, lng);
 
     // Run all source fetches in parallel
-    const [mainBreweries, noCoordBreweries, osmBreweries, fsqBreweries, hereBreweries] = await Promise.all([
+    const [mainBreweries, noCoordBreweries, osmBreweries, fsqBreweries] = await Promise.all([
       fetchBreweries(lat, lng),
       fetchNoCoordBreweriesForState(currentState),
       fetchBreweriesFromOSM(lat, lng, radiusMiles),
       fetchBreweriesFromFoursquare(lat, lng, radiusMiles),
-      fetchBreweriesFromHERE(lat, lng, radiusMiles),
     ]);
 
     // Merge OBDB sources first (deduplicate by ID)
@@ -1389,16 +1331,14 @@ async function doSearch() {
     ];
 
     // Add external-source results, deduplicating against everything already seen
-    const newFromOSM  = deduplicateOSM(allObdb, osmBreweries);
-    const newFromFSQ  = deduplicateOSM([...allObdb, ...newFromOSM], fsqBreweries);
-    const newFromHERE = deduplicateOSM([...allObdb, ...newFromOSM, ...newFromFSQ], hereBreweries);
+    const newFromOSM = deduplicateOSM(allObdb, osmBreweries);
+    const newFromFSQ = deduplicateOSM([...allObdb, ...newFromOSM], fsqBreweries);
 
     console.log(
-      `[BreweryFinder] Sources — OBDB: ${allObdb.length}, OSM: +${newFromOSM.length},` +
-      ` Foursquare: +${newFromFSQ.length}, HERE: +${newFromHERE.length}`
+      `[BreweryFinder] Sources — OBDB: ${allObdb.length}, OSM: +${newFromOSM.length}, Foursquare: +${newFromFSQ.length}`
     );
 
-    const allBreweries = [...allObdb, ...newFromOSM, ...newFromFSQ, ...newFromHERE];
+    const allBreweries = [...allObdb, ...newFromOSM, ...newFromFSQ];
 
     // Geocode the coord-less breweries so distance filtering can include them
     await geocodeMissingCoords(allBreweries);
@@ -1497,22 +1437,18 @@ const settingsPanel      = document.getElementById('settings-panel');
 const settingsCloseBtn   = document.getElementById('settings-close-btn');
 const settingsBackdrop   = document.getElementById('settings-backdrop');
 const fsqKeyInput        = document.getElementById('fsq-key-input');
-const hereKeyInput       = document.getElementById('here-key-input');
 const settingsSaveBtn    = document.getElementById('settings-save-btn');
 const settingsSavedMsg   = document.getElementById('settings-saved-msg');
 const settingsActiveSrc  = document.getElementById('settings-active-sources');
 
 function updateSettingsUI() {
-  const hasFSQ  = !!apiKeys.foursquare;
-  const hereHasKey = !!apiKeys.here;
-  const hasAny  = hasFSQ || hereHasKey;
-  settingsToggleBtn.classList.toggle('has-keys', hasAny);
+  const hasFSQ = !!apiKeys.foursquare;
+  settingsToggleBtn.classList.toggle('has-keys', hasFSQ);
 
   const sources = [
-    { name: 'Open Brewery DB', active: true,     always: true },
-    { name: 'OpenStreetMap (Overpass)', active: true, always: true },
-    { name: 'Foursquare Places', active: hasFSQ, always: false },
-    { name: 'HERE Places',       active: hereHasKey, always: false },
+    { name: 'Open Brewery DB',        active: true,   always: true },
+    { name: 'OpenStreetMap (Overpass)', active: true,  always: true },
+    { name: 'Foursquare Places',       active: hasFSQ, always: false },
   ];
   settingsActiveSrc.innerHTML = sources.map(s => `
     <div class="active-source-row">
@@ -1522,8 +1458,7 @@ function updateSettingsUI() {
 }
 
 function openSettings() {
-  fsqKeyInput.value  = apiKeys.foursquare;
-  hereKeyInput.value = apiKeys.here;
+  fsqKeyInput.value = apiKeys.foursquare;
   settingsSavedMsg.hidden = true;
   settingsPanel.hidden    = false;
   settingsBackdrop.hidden = false;
@@ -1543,7 +1478,6 @@ settingsBackdrop.addEventListener('click', closeSettings);
 
 settingsSaveBtn.addEventListener('click', () => {
   apiKeys.foursquare = fsqKeyInput.value.trim();
-  apiKeys.here       = hereKeyInput.value.trim();
   settingsSavedMsg.hidden = false;
   setTimeout(() => { settingsSavedMsg.hidden = true; }, 2500);
   updateSettingsUI();

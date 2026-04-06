@@ -1313,11 +1313,6 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   color: #f79080;
   border: 1px solid rgba(249,72,49,0.3);
 }
-.source-here {
-  background: rgba(0,130,210,0.15);
-  color: #6ab8e8;
-  border: 1px solid rgba(0,130,210,0.3);
-}
 
 /* ─── Untappd Parsed Beer Cards ──────────────── */
 .ut-parsed-header {
