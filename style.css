@@ -790,6 +790,189 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 .mini-map .leaflet-control-attribution a { color: var(--text-muted); }
 .mini-map .leaflet-control-zoom { display: none; }
 
+/* ─── Section Loading State ─────────────────── */
+.section-fetching {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0.2rem 0;
+  min-height: 2rem;
+}
+
+.fetch-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--copper);
+  opacity: 0.25;
+  animation: fetch-pulse 1.3s ease-in-out infinite;
+}
+.fetch-dot:nth-child(2) { animation-delay: 0.2s; }
+.fetch-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes fetch-pulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.85); }
+  40%           { opacity: 1;   transform: scale(1.15); }
+}
+
+/* ─── Scraped Content Styles ─────────────────── */
+.section-text {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.scrape-error {
+  color: var(--text-muted) !important;
+  font-style: italic;
+}
+
+.found-mention { color: var(--text-secondary) !important; }
+
+/* Hours */
+.hours-list { display: flex; flex-direction: column; gap: 0.2rem; }
+.hours-row {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.hours-row:first-child { color: var(--cream-dim); }
+
+/* Tap List */
+.beer-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.beer-item {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  padding: 0.3rem 0.5rem;
+  border-left: 2px solid rgba(184,115,51,0.2);
+  line-height: 1.4;
+  transition: border-color var(--t), color var(--t);
+}
+.beer-item:hover { border-color: var(--copper); color: var(--cream-dim); }
+
+/* Integration Links (Untappd, BeerMenus, etc.) */
+.taplist-integration {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.integration-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--copper-light);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(212,148,63,0.3);
+  padding-bottom: 1px;
+  transition: color var(--t), border-color var(--t);
+}
+.integration-link:hover {
+  color: var(--cream);
+  border-color: var(--cream);
+  text-decoration: none;
+}
+.integration-icon { font-size: 0.85rem; }
+.integration-badge {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 0.1rem 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Untappd widget container */
+.untappd-embed-wrap {
+  margin-top: 0.6rem;
+}
+.load-widget-btn {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  padding: 0.35rem 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: all var(--t);
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+.load-widget-btn:hover {
+  color: var(--copper-light);
+  border-color: var(--border-bright);
+  background: var(--gold-faint);
+}
+.untappd_menu { font-size: 0.78rem; }
+
+/* Events */
+.events-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.event-item {
+  padding: 0.5rem 0.6rem;
+  border-left: 2px solid rgba(184,115,51,0.25);
+  background: rgba(184,115,51,0.04);
+}
+.event-name {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  color: var(--cream-dim);
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+.event-date {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--copper);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+.event-desc {
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  font-style: italic;
+}
+
+/* Specials */
+.specials-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.special-item {
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(184,115,51,0.08);
+  font-style: italic;
+}
+.special-item:last-child { border-bottom: none; }
+
+/* Food Truck */
+.foodtruck-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.foodtruck-item {
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  font-style: italic;
+}
+
 /* ─── Footer ────────────────────────────────── */
 .site-footer {
   padding: 2rem 1.5rem 3rem;

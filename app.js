@@ -214,25 +214,228 @@ function buildLogoHTML(brewery) {
   return `<div class="brewery-logo-fallback">${initials}</div>`;
 }
 
-function buildSectionHTML(title, icon, content) {
+function buildSectionHTML(title, icon, key, breweryId) {
+  const safeId = CSS.escape(`section-${key}-${breweryId}`);
   return `
-    <div class="card-section">
+    <div class="card-section" id="section-${key}-${escapeHtml(breweryId)}" data-section="${key}">
       <div class="section-title">
         <span class="section-title-icon">${icon}</span>
         ${escapeHtml(title)}
       </div>
-      ${content}
+      <div class="section-content section-fetching">
+        <span class="fetch-dot"></span><span class="fetch-dot"></span><span class="fetch-dot"></span>
+      </div>
     </div>
   `;
 }
 
-function buildUnavailableHTML(label, website, name) {
-  if (website) {
-    const safeUrl = encodeURI(website);
-    const safeName = escapeHtml(name);
-    return `<p class="section-unavailable">Visit <a href="${safeUrl}" target="_blank" rel="noopener">${safeName}'s website</a> for current ${label}.</p>`;
+function setSectionContent(breweryId, key, html) {
+  const el = document.getElementById(`section-${key}-${breweryId}`);
+  if (!el) return;
+  const content = el.querySelector('.section-content');
+  if (!content) return;
+  content.classList.remove('section-fetching');
+  content.innerHTML = html;
+}
+
+function renderHours(data) {
+  if (!data) return noDataHTML();
+  if (data.lines && data.lines.length) {
+    const rows = data.lines.map(l =>
+      `<div class="hours-row">${escapeHtml(l)}</div>`
+    ).join('');
+    return `<div class="hours-list">${rows}</div>`;
   }
-  return `<p class="section-unavailable">Not available — check the brewery directly.</p>`;
+  if (data.raw) {
+    return `<p class="section-text">${escapeHtml(truncateDisplay(data.raw, 280))}</p>`;
+  }
+  return noDataHTML();
+}
+
+function renderTapList(data, website, name) {
+  if (!data) return noDataHTML(website, name, 'tap list');
+
+  if (data.type === 'untappd-widget') {
+    return `
+      <div class="taplist-integration untappd">
+        <a class="integration-link" href="https://untappd.com/venue/${data.id}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍺</span>
+          <span>View tap list on Untappd</span>
+        </a>
+        <span class="integration-badge">via Untappd</span>
+      </div>
+      <div class="untappd-embed-wrap" data-lid="${escapeHtml(data.id)}">
+        <button class="load-widget-btn" onclick="loadUntappdWidget(this, '${escapeHtml(data.id)}')">
+          Load live tap list ↓
+        </button>
+      </div>`;
+  }
+  if (data.type === 'untappd-venue') {
+    return `
+      <div class="taplist-integration untappd">
+        <a class="integration-link" href="https://untappd.com/venue/${data.id}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍺</span>
+          <span>View tap list on Untappd</span>
+        </a>
+        <span class="integration-badge">via Untappd</span>
+      </div>`;
+  }
+  if (data.type === 'untappd-brewery') {
+    return `
+      <div class="taplist-integration untappd">
+        <a class="integration-link" href="https://untappd.com/brewery/${data.id}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍺</span>
+          <span>View beers on Untappd</span>
+        </a>
+        <span class="integration-badge">via Untappd</span>
+      </div>`;
+  }
+  if (data.type === 'beermenus') {
+    return `
+      <div class="taplist-integration beermenus">
+        <a class="integration-link" href="https://www.beermenus.com/places/${data.slug}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍺</span>
+          <span>View tap list on BeerMenus</span>
+        </a>
+        <span class="integration-badge">via BeerMenus</span>
+      </div>`;
+  }
+  if (data.type === 'taplist-io') {
+    return `
+      <div class="taplist-integration taplist-io">
+        <a class="integration-link" href="https://taplist.io/board/${data.slug}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍺</span>
+          <span>View live tap list</span>
+        </a>
+        <span class="integration-badge">via Taplist.io</span>
+      </div>`;
+  }
+  if (data.type === 'digitalpour') {
+    return `
+      <div class="taplist-integration digitalpour">
+        <a class="integration-link" href="https://www.digitalpour.com/menu/${data.id}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍺</span>
+          <span>View tap list on DigitalPour</span>
+        </a>
+        <span class="integration-badge">via DigitalPour</span>
+      </div>`;
+  }
+  if (data.type === 'parsed-list' && data.items && data.items.length) {
+    const items = data.items.map(i =>
+      `<li class="beer-item">${escapeHtml(i)}</li>`
+    ).join('');
+    return `<ul class="beer-list">${items}</ul>`;
+  }
+  return noDataHTML(website, name, 'tap list');
+}
+
+function renderEvents(data, website, name) {
+  if (!data) return noDataHTML(website, name, 'upcoming events');
+
+  if (data.type === 'schema' && data.events && data.events.length) {
+    const items = data.events.map(e => `
+      <div class="event-item">
+        ${e.name ? `<div class="event-name">${escapeHtml(e.name)}</div>` : ''}
+        ${e.date ? `<div class="event-date">${escapeHtml(e.date)}</div>` : ''}
+        ${e.desc ? `<div class="event-desc">${escapeHtml(e.desc)}</div>` : ''}
+      </div>`).join('');
+    return `<div class="events-list">${items}</div>`;
+  }
+  if (data.type === 'eventbrite') {
+    return `
+      <div class="taplist-integration">
+        <a class="integration-link" href="${encodeURI(data.url || 'https://eventbrite.com')}" target="_blank" rel="noopener">
+          <span class="integration-icon">📅</span>
+          <span>View events on Eventbrite</span>
+        </a>
+        <span class="integration-badge">via Eventbrite</span>
+      </div>`;
+  }
+  if (data.type === 'facebook') {
+    return `
+      <div class="taplist-integration">
+        <a class="integration-link" href="https://www.facebook.com/${escapeHtml(data.page || '')}/events" target="_blank" rel="noopener">
+          <span class="integration-icon">📅</span>
+          <span>View events on Facebook</span>
+        </a>
+        <span class="integration-badge">via Facebook</span>
+      </div>`;
+  }
+  if ((data.type === 'dom' || data.type === 'text') && data.items && data.items.length) {
+    const items = data.items.map(i => `<div class="event-item"><div class="event-desc">${escapeHtml(i)}</div></div>`).join('');
+    return `<div class="events-list">${items}</div>`;
+  }
+  return noDataHTML(website, name, 'upcoming events');
+}
+
+function renderSpecials(data, website, name) {
+  if (!data) return noDataHTML(website, name, 'specials');
+
+  if (data.type === 'dom' && data.items && data.items.length) {
+    const items = data.items.map(i => `<div class="special-item">${escapeHtml(i)}</div>`).join('');
+    return `<div class="specials-list">${items}</div>`;
+  }
+  if (data.raw) {
+    return `<p class="section-text">${escapeHtml(truncateDisplay(data.raw, 280))}</p>`;
+  }
+  return noDataHTML(website, name, 'specials');
+}
+
+function renderFoodMenu(data, website, name) {
+  if (!data) return noDataHTML(website, name, 'food menu');
+
+  if (data.type === 'toast') {
+    return `
+      <div class="taplist-integration">
+        <a class="integration-link" href="${encodeURI(data.url)}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍔</span>
+          <span>View menu &amp; order online</span>
+        </a>
+        <span class="integration-badge">via Toast</span>
+      </div>`;
+  }
+  if (data.href || data.url) {
+    const href = encodeURI(data.href || data.url);
+    const label = escapeHtml(data.label || 'View Food Menu');
+    return `
+      <div class="taplist-integration">
+        <a class="integration-link" href="${href}" target="_blank" rel="noopener">
+          <span class="integration-icon">🍔</span>
+          <span>${label}</span>
+        </a>
+        ${data.href && /\.pdf/i.test(data.href) ? '<span class="integration-badge">PDF</span>' : ''}
+      </div>`;
+  }
+  return noDataHTML(website, name, 'food menu');
+}
+
+function renderFoodTruck(data, website, name) {
+  if (!data) return noDataHTML(website, name, 'food truck schedule');
+
+  if (data.type === 'text' && data.items && data.items.length) {
+    const items = data.items.map(i => `<div class="foodtruck-item">${escapeHtml(i)}</div>`).join('');
+    return `<div class="foodtruck-list">${items}</div>`;
+  }
+  if (data.type === 'dom' && data.text) {
+    return `<p class="section-text">${escapeHtml(truncateDisplay(data.text, 280))}</p>`;
+  }
+  if (data.type === 'mentioned') {
+    return `<p class="section-text found-mention">Food trucks are mentioned on this brewery's website.
+      ${website ? `<a href="${encodeURI(website)}" target="_blank" rel="noopener">Check for current schedule →</a>` : ''}</p>`;
+  }
+  return noDataHTML(website, name, 'food truck info');
+}
+
+function noDataHTML(website, name, label) {
+  if (website && name && label) {
+    return `<p class="section-unavailable">Visit <a href="${encodeURI(website)}" target="_blank" rel="noopener">${escapeHtml(name)}'s website</a> for ${label}.</p>`;
+  }
+  return `<p class="section-unavailable">Not found on website.</p>`;
+}
+
+function truncateDisplay(str, max) {
+  if (!str) return '';
+  return str.length > max ? str.slice(0, max).replace(/\s+\S*$/, '') + '…' : str;
 }
 
 function buildOwnershipHTML(brewery) {
@@ -332,21 +535,15 @@ function renderBreweryCard(brewery, index) {
       </div>`;
   }
 
-  // ── Extended sections ──
-  const hoursHTML      = buildUnavailableHTML('hours', website, name);
-  const taplistHTML    = buildUnavailableHTML('tap list', website, name);
-  const eventsHTML     = buildUnavailableHTML('events', website, name);
-  const specialsHTML   = buildUnavailableHTML('specials & deals', website, name);
-  const foodtruckHTML  = buildUnavailableHTML('food truck schedule', website, name);
-  const foodMenuHTML   = isFood ? buildUnavailableHTML('food menu', website, name) : null;
-
+  // ── Extended sections (all start in "fetching" state, filled by scraper) ──
+  const bid = escapeHtml(brewery.id);
   const sectionsInner = [
-    buildSectionHTML('Hours',    '🕐', hoursHTML),
-    buildSectionHTML('Tap List', '🍺', taplistHTML),
-    buildSectionHTML('Events',   '📅', eventsHTML),
-    buildSectionHTML('Specials', '★',  specialsHTML),
-    foodMenuHTML ? buildSectionHTML('Food Menu', '🍔', foodMenuHTML) : '',
-    buildSectionHTML('Food Truck', '🚚', foodtruckHTML),
+    buildSectionHTML('Hours',      '🕐', 'hours',     bid),
+    buildSectionHTML('Tap List',   '🍺', 'taplist',   bid),
+    buildSectionHTML('Events',     '📅', 'events',    bid),
+    buildSectionHTML('Specials',   '★',  'specials',  bid),
+    isFood ? buildSectionHTML('Food Menu', '🍔', 'food', bid) : '',
+    buildSectionHTML('Food Truck', '🚚', 'foodtruck', bid),
   ].join('');
 
   // ── Map ──
@@ -405,7 +602,7 @@ function renderBreweries(breweries) {
 
   breweryGrid.innerHTML = breweries.map((b, i) => renderBreweryCard(b, i)).join('');
 
-  // Set up IntersectionObserver for lazy Leaflet map init
+  // Lazy Leaflet map init via IntersectionObserver
   mapObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
@@ -418,7 +615,104 @@ function renderBreweries(breweries) {
   document.querySelectorAll('.mini-map[data-lat]').forEach(el => {
     mapObserver.observe(el);
   });
+
+  // Kick off website scraping for all breweries that have a website
+  startScraping(breweries);
 }
+
+// ─── Scraping Orchestration ───────────────────────────────────────────────────
+
+let activeScrapeController = null; // lets us cancel if a new search fires
+
+function startScraping(breweries) {
+  // Cancel any previous run
+  if (activeScrapeController) activeScrapeController.cancelled = true;
+  const ctrl = { cancelled: false };
+  activeScrapeController = ctrl;
+
+  for (const brewery of breweries) {
+    if (!brewery.website_url) {
+      // No website — fill sections with "no website" message immediately
+      markNoWebsite(brewery.id);
+      continue;
+    }
+
+    scrapeQueue.add(async () => {
+      if (ctrl.cancelled) return;
+      // Mark card as "fetching" (already the default state, nothing to do)
+      try {
+        const results = await scrapeBrewery(brewery.website_url);
+        if (ctrl.cancelled) return;
+        applyScrapeResults(brewery, results);
+      } catch (err) {
+        if (ctrl.cancelled) return;
+        markScrapeError(brewery.id, brewery.website_url, brewery.name);
+      }
+    });
+  }
+}
+
+function markNoWebsite(id) {
+  const msg = `<p class="section-unavailable">No website on record.</p>`;
+  for (const key of ['hours','taplist','events','specials','food','foodtruck']) {
+    setSectionContent(id, key, msg);
+  }
+}
+
+function markScrapeError(id, website, name) {
+  const msg = website
+    ? `<p class="section-unavailable scrape-error">Could not fetch website. <a href="${encodeURI(website)}" target="_blank" rel="noopener">Visit ${escapeHtml(name)}'s site →</a></p>`
+    : `<p class="section-unavailable scrape-error">Website unavailable.</p>`;
+  for (const key of ['hours','taplist','events','specials','food','foodtruck']) {
+    setSectionContent(id, key, msg);
+  }
+}
+
+function applyScrapeResults(brewery, results) {
+  const { id, name, website_url: website, brewery_type: type } = brewery;
+  const isFood = ['brewpub', 'bar'].includes(type);
+
+  setSectionContent(id, 'hours',     renderHours(results.hours));
+  setSectionContent(id, 'taplist',   renderTapList(results.tapList, website, name));
+  setSectionContent(id, 'events',    renderEvents(results.events, website, name));
+  setSectionContent(id, 'specials',  renderSpecials(results.specials, website, name));
+  if (isFood) {
+    setSectionContent(id, 'food',    renderFoodMenu(results.foodMenu, website, name));
+  } else {
+    // Non-food brewery — still show food menu if we found one
+    if (results.foodMenu) {
+      setSectionContent(id, 'food',  renderFoodMenu(results.foodMenu, website, name));
+    } else {
+      setSectionContent(id, 'food',  `<p class="section-unavailable">Not a food-serving venue.</p>`);
+    }
+  }
+  setSectionContent(id, 'foodtruck', renderFoodTruck(results.foodTruck, website, name));
+}
+
+// ─── Untappd Widget Loader (on-demand) ───────────────────────────────────────
+
+window.loadUntappdWidget = function(btn, locationId) {
+  const wrap = btn.closest('.untappd-embed-wrap');
+  if (!wrap) return;
+
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+
+  // Create the container div Untappd's script looks for
+  const menuDiv = document.createElement('div');
+  menuDiv.className = 'untappd_menu';
+  wrap.innerHTML = '';
+  wrap.appendChild(menuDiv);
+
+  // Dynamically load the Untappd widget script
+  const script = document.createElement('script');
+  script.src = `https://widgets.untappd.com/beer_menu/v2/${encodeURIComponent(locationId)}`;
+  script.charset = 'utf-8';
+  script.onerror = () => {
+    wrap.innerHTML = `<p class="section-unavailable scrape-error">Could not load Untappd widget.</p>`;
+  };
+  document.body.appendChild(script);
+};
 
 function initMiniMap(container) {
   const lat  = parseFloat(container.dataset.lat);
